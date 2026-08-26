@@ -30,12 +30,9 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 
 @dataclass
 class Config:
-    # Provider/model selection is environment-only: no model is baked into source.
     default_model: str = os.getenv("DEFAULT_MODEL", "").strip()
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
-
-    # Legacy provider configuration is retained for module compatibility; Router enables Nara only.
     openai_key: str = os.getenv("OPENAI_API_KEY", "").strip()
     openrouter_key: str = os.getenv("OPENROUTER_API_KEY", "").strip()
     anthropic_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
@@ -46,7 +43,6 @@ class Config:
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "").strip()
     gemini_model: str = os.getenv("GEMINI_MODEL", "").strip()
     ollama_model: str = os.getenv("OLLAMA_MODEL", "").strip()
-
     api_token: str = os.getenv("API_TOKEN", "").strip()
     api_host: str = os.getenv("API_HOST", "127.0.0.1").strip()
     api_port: int = _int(os.getenv("API_PORT"), 8765)
@@ -66,31 +62,20 @@ class Config:
     shell_whitelist: tuple[str, ...] = _csv(os.getenv("SHELL_WHITELIST"), ("pwd", "ls", "whoami", "uname", "date"))
     auto_tools: tuple[str, ...] = _csv(
         os.getenv("AUTO_TOOLS"),
-        (
-            "wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report",
-            "battery", "local_ip", "ping", "dns_lookup", "port_check", "web_research", "web_compare",
-            "server_diagnostics",
-        ),
+        ("wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report", "battery", "local_ip", "ping", "dns_lookup", "port_check", "web_research", "web_compare", "server_diagnostics"),
     )
     tool_profile: str = os.getenv("TOOL_PROFILE", "local").strip() or "local"
-
-    # Public web research limits. Web pages are always treated as untrusted data.
     web_enabled: bool = _bool(os.getenv("WEB_RESEARCH_ENABLED"), True)
     web_max_response_bytes: int = _int(os.getenv("WEB_MAX_RESPONSE_BYTES"), 2_000_000)
     web_max_redirects: int = _int(os.getenv("WEB_MAX_REDIRECTS"), 3)
     web_connect_timeout: int = _int(os.getenv("WEB_CONNECT_TIMEOUT"), 8)
     web_read_timeout: int = _int(os.getenv("WEB_READ_TIMEOUT"), 15)
-
-    # Render/container runtime execution is disabled by default and only exposes fixed operations.
-    server_execution_enabled: bool = _bool(os.getenv("SERVER_EXECUTION_ENABLED"), False)
+    server_execution_enabled: bool = _bool(os.getenv("SERVER_EXECUTION_ENABLED"), True)
     server_timeout_seconds: int = _int(os.getenv("SERVER_TIMEOUT_SECONDS"), 20)
     server_memory_limit_mb: int = _int(os.getenv("SERVER_MEMORY_LIMIT_MB"), 256)
     server_process_limit: int = _int(os.getenv("SERVER_PROCESS_LIMIT"), 16)
     server_output_limit: int = _int(os.getenv("SERVER_OUTPUT_LIMIT"), 12_000)
-    server_allowed_env: tuple[str, ...] = _csv(
-        os.getenv("SERVER_ALLOWED_ENV"),
-        ("PATH", "HOME", "PYTHONPATH", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"),
-    )
+    server_allowed_env: tuple[str, ...] = _csv(os.getenv("SERVER_ALLOWED_ENV"), ("PATH", "HOME", "PYTHONPATH", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"))
     server_safe_scripts: tuple[str, ...] = _csv(os.getenv("SERVER_SAFE_SCRIPTS"), ())
     server_exec_allowlist: tuple[str, ...] = _csv(os.getenv("SERVER_EXEC_ALLOWLIST"), ())
     server_exec_allowed_sessions: tuple[str, ...] = _csv(os.getenv("SERVER_EXEC_ALLOWED_SESSIONS"), ())
