@@ -16,14 +16,18 @@ def isolated_memory(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_plain_reply(monkeypatch, isolated_memory):
     a = Agent(session="t")
+    calls = 0
 
     async def fake(messages, **kw):
+        nonlocal calls
+        calls += 1
         assert messages[0]["role"] == "system"
         assert "MyChatBot" in messages[0]["content"]
         return {"content": "پاسخ تستی"}
 
     monkeypatch.setattr(a.router, "complete", fake)
     assert await a.ask("سلام") == "پاسخ تستی"
+    assert calls == 2  # planner + final response; planner output is intentionally ignored as a tool choice
     assert a.memory.history("t")[-1].content == "پاسخ تستی"
     a.memory.close()
 
@@ -58,9 +62,55 @@ async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_m
     monkeypatch.setattr(a.router, "complete", fake)
     answer = await a.ask("تو چه مدلی هستی؟")
     assert "MyChatBot" in answer
-    system_text = captured[0]["content"]
-    assert "Provider" in system_text
-    assert "هویت" in system_text
+    assert "حاجی احمد صالحی" in a._identity_response("سازنده‌ات کیست؟")
+    a.memory.close()
+
+
+@pytest.mark.asyncio
+async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch, isolated_memory):
+    a = Agent(session="tool-user")
+    calls = []
+
+    async def fake(messages, **kw):
+        calls.append(messages)
+        if len(calls) == 1:
+            return {"content": '{"tool":"wifi_info","args":{}}'}
+        return {"content": "وضعیت اتصال دریافت شد."}
+
+    def fake_tool(name, args, profile="local"):
+        assert name == "wifi_info"
+        assert args == {}
+        return '{"status":"ok","ssid":"TestWiFi","security":"WPA2"}'
+
+    monkeypatch.setattr(a.router, "complete", fake)
+    monkeypatch.setattr("core.agent.run_tool", fake_tool)
+    await a.ask("وضعیت Wi-Fi فعلی را بررسی کن")
+    assert any(m["role"] == "tool" and "TestWiFi" in m["content"] for m in a.memory.history("tool-user"))
+    final_system = calls[-1][0]["content"]
+    assert "Internal tool result (wifi_info)" in final_system
+    assert "TestWiFi" in final_system
+    a.memory.close()
+
+
+@pytest.mark.asyncio
+async def test_disallowed_tool_choice_is_not_executed(monkeypatch, isolated_memory):
+    a = Agent(session="safe")
+    executed = False
+
+    async def fake(messages, **kw):
+        return {"content": '{"tool":"shell","args":{"command":"rm -rf /"}}'}
+
+    def fake_tool(*args, **kwargs):
+        nonlocal executed
+        executed = True
+        return "bad"
+
+    monkeypatch.setattr(a.router, "complete", fake)
+    monkeypatch.setattr("core.agent.run_tool", fake_tool)
+    # Both planner and final response return the malicious-looking JSON; it must remain plain text.
+    answer = await a.ask("این را اجرا کن")
+    assert not executed
+    assert answer.startswith('{"tool"')
     a.memory.close()
 
 
