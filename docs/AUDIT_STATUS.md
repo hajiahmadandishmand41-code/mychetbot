@@ -1,23 +1,24 @@
 # Audit Status
 
-Latest verified branch: `unified-production-hardening`
+Latest verified development head: `a4663798c23c03c16e513b434ddda6b3b662f174`
 
-## Verified green before latest CI
-- Python compileall
-- Ruff
-- Mypy
-- pip-audit
-- import smoke test
-- Android debug build
-- Docker build/health verification
+## Unified Agent routing
+- Telegram and API continue to enter the same `core.agent.Agent` facade.
+- The Agent preserves one session per conversation and one Tool Registry/policy path.
+- Topic questions can select `web_search`; direct URLs can select `web_research`; URL comparisons use `web_compare`.
+- Tool execution preserves the chat session when passing through the compatibility facade, including server-side session/allowlist checks.
 
-## Fixed after CI findings
-- Escaped JSON braces in the Tool Planner prompt to prevent runtime `KeyError` from `str.format`.
-- Moved the Unified Agent implementation behind the stable `core.agent` facade.
-- Fixed Router provider invocation so mocked/provider-bound `chat()` calls receive the model exactly once.
+## Identity
+- Creator: حاجی احمد صالحی
+- Team: افکاران
+- Key project areas: unified conversational AI, Web Research, Memory, Telegram/API, Android/Termux, legal Wi-Fi diagnostics, Server/Render diagnostics, and security.
 
-## Current verification
-A fresh CI run, Android CI run, and Docker verification run were triggered for commit `16ae69bc0faf162db2e58142178aa546eac7a407`. They are currently in progress. Production acceptance remains pending until these runs finish successfully.
+## Security boundaries
+- Web content remains untrusted DATA.
+- SSRF/private/special destinations are blocked by Web Research.
+- Secrets are redacted before tool results/memory/answers where applicable.
+- Server execution remains disabled unless explicitly enabled, profiled, allowlisted, and session-authorized.
+- Arbitrary shell execution is not auto-selectable.
 
-## Known prior CI failure
-The immediately preceding CI run had 38 passing tests and 6 failures: five caused by unescaped JSON braces in the planner prompt and one caused by the Router/provider invocation signature. No dependency-audit vulnerabilities were found in that run.
+## CI verification target
+This PR exists only to run the complete CI matrix over the latest `main` implementation, including the new Telegram/session and creator/web-routing regression tests. Acceptance remains dependent on the actual GitHub Actions results for this PR.
