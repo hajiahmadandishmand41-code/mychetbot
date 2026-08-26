@@ -1,0 +1,9 @@
+[project]
+name = "mychatbot"
+version = "0.1.0"
+description = "Personal AI Assistant for Android + Termux"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

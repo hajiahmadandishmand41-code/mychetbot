@@ -1,42 +1,11 @@
-# Flutter / Dart
-.dart_tool/
-.packages
-.pub-cache/
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub/
-coverage/
-
-# Android
-.gradle/
-local.properties
-*.jks
-*.keystore
-
-# Python
 __pycache__/
 *.py[cod]
-.venv/
-venv/
-.pytest_cache/
-
-# Secrets
 .env
-.env.*
-!.env.example
-
-# Runtime data
-runtime/
-logs/
-*.db
-*.sqlite
-
-# IDE
-.idea/
-.vscode/
+.venv/
+data/*.db
+data/*.jsonl
+.pytest_cache/
+build/
+.dart_tool/
 *.iml
-
-# OS
-.DS_Store
-Thumbs.db
+local.properties
