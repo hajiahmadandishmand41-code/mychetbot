@@ -10,7 +10,7 @@ FALLBACK_ORDER = ["openrouter", "openai", "anthropic", "gemini", "ollama"]
 
 
 class Router:
-    """Select a configured provider and fall back on normalized provider failures."""
+    """Select a configured provider and fall back on provider failures."""
 
     def __init__(self, preferred: str | None = None, model: str | None = None):
         self.preferred = (preferred or config.default_provider).strip()
@@ -37,7 +37,7 @@ class Router:
                 log.warning("provider %s failed: %s", name, exc.code)
                 errors.append(f"{name}: {exc.code}")
             except Exception as exc:  # noqa: BLE001
-                log.exception("unexpected provider failure: %s", name)
+                log.warning("provider %s failed unexpectedly: %s", name, type(exc).__name__)
                 errors.append(f"{name}: unexpected_error")
 
         raise ProviderError("router", "all_providers_failed", "; ".join(errors))
