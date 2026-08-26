@@ -90,7 +90,6 @@ class Memory:
         return [Message(r[0], r[1], r[2]) for r in reversed(rows)]
 
     def relevant_context(self, session: str, query: str, max_messages: int = 8, candidate_limit: int = 80) -> list[dict[str, str]]:
-        """Return recent/semantically overlapping messages without growing the prompt indefinitely."""
         max_messages = max(0, min(int(max_messages), 20))
         candidate_limit = max(10, min(int(candidate_limit), 200))
         if max_messages == 0:
@@ -101,20 +100,24 @@ class Memory:
                 "SELECT id, role, content FROM messages WHERE session=? ORDER BY id DESC LIMIT ?",
                 (session, candidate_limit),
             ).fetchall()
+        if not query_tokens:
+            return [{"role": role, "content": content} for _, role, content in rows[:max_messages]][::-1]
+        newest_id = rows[0][0] if rows else 0
         scored: list[tuple[float, int, str, str]] = []
         for row_id, role, content in rows:
             tokens = self._tokens(content)
             overlap = len(query_tokens & tokens)
-            recency = 1.0 / (1.0 + (rows[0][0] - row_id) if rows else 1.0)
+            if overlap <= 0:
+                continue
+            recency = 1.0 / (1.0 + max(0, newest_id - row_id))
             role_bonus = 0.15 if role == "user" else 0.0
             score = overlap * 3.0 + recency + role_bonus
-            if overlap > 0:
-                scored.append((score, row_id, role, content))
+            scored.append((score, row_id, role, content))
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         selected_ids = {item[1] for item in scored[:max_messages]}
-        recent = [row for row in rows if row[0] in selected_ids]
-        recent.sort(key=lambda r: r[0])
-        return [{"role": role, "content": content} for _, role, content in recent]
+        selected = [row for row in rows if row[0] in selected_ids]
+        selected.sort(key=lambda r: r[0])
+        return [{"role": role, "content": content} for _, role, content in selected]
 
     def remember(self, key: str, value: str, session: str = "default") -> None:
         key = key.strip()
@@ -156,22 +159,27 @@ class Memory:
         if max_facts == 0 or not facts:
             return {}
         query_tokens = self._tokens(query)
-        scored: list[tuple[float, str, str]] = []
-        for key, value in facts.items():
-            tokens = self._tokens(f"{key} {value}")
-            overlap = len(query_tokens & tokens)
-            direct_bonus = 1.5 if key.lower() in {t.lower() for t in query_tokens} else 0.0
-            scored.append((overlap * 3.0 + direct_bonus, key, value))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        # Identity/preferences are always useful context, even when query overlap is zero.
-        priority = [key for key in ("name", "response_preference", "language_preference") if key in facts]
         selected: dict[str, str] = {}
+        priority = ["name", "response_preference", "language_preference"]
         for key in priority:
             if key in facts and len(selected) < max_facts:
                 selected[key] = facts[key]
+
+        scored: list[tuple[float, str, str]] = []
+        for key, value in facts.items():
+            if key in selected:
+                continue
+            tokens = self._tokens(f"{key} {value}")
+            overlap = len(query_tokens & tokens)
+            if overlap <= 0:
+                continue
+            direct_bonus = 1.5 if key.lower() in query_tokens else 0.0
+            scored.append((overlap * 3.0 + direct_bonus, key, value))
+        scored.sort(key=lambda item: item[0], reverse=True)
         for _, key, value in scored:
-            if key not in selected and len(selected) < max_facts:
-                selected[key] = value
+            if len(selected) >= max_facts:
+                break
+            selected[key] = value
         return selected
 
     def clear(self, session: str) -> None:
