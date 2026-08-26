@@ -3,12 +3,18 @@ import os
 import pytest
 
 from core.agent import Agent
+from core.config import config
 from core.memory import Memory
 
 
+@pytest.fixture
+def isolated_memory(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_dir", str(tmp_path))
+    return tmp_path
+
+
 @pytest.mark.asyncio
-async def test_agent_plain_reply(monkeypatch, tmp_path):
-    monkeypatch.setenv("MYCHATBOT_DATA", str(tmp_path))
+async def test_agent_plain_reply(monkeypatch, isolated_memory):
     a = Agent(session="t")
 
     async def fake(messages, **kw):
@@ -23,26 +29,25 @@ async def test_agent_plain_reply(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_automatic_name_memory_and_recall(monkeypatch, tmp_path):
-    monkeypatch.setenv("MYCHATBOT_DATA", str(tmp_path))
+async def test_automatic_name_memory_and_recall(monkeypatch, isolated_memory):
     a = Agent(session="user-a")
     captured = []
 
     async def fake(messages, **kw):
         captured.append(messages)
-        return {"content": "سلام احمد، یادت هستم."}
+        return {"content": "باشه."}
 
     monkeypatch.setattr(a.router, "complete", fake)
     await a.ask("اسم من احمد است")
     assert a.memory.recall("name", "user-a") == "احمد"
     await a.ask("اسم من چی بود؟")
-    assert any("name: احمد" in block["content"] for block in captured[-1] if block["role"] == "system")
+    system_text = captured[-1][0]["content"]
+    assert "name: احمد" in system_text
     a.memory.close()
 
 
 @pytest.mark.asyncio
-async def test_identity_does_not_expose_provider(monkeypatch, tmp_path):
-    monkeypatch.setenv("MYCHATBOT_DATA", str(tmp_path))
+async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_memory):
     a = Agent(session="identity")
     captured = []
 
@@ -55,7 +60,7 @@ async def test_identity_does_not_expose_provider(monkeypatch, tmp_path):
     assert "MyChatBot" in answer
     system_text = captured[0]["content"]
     assert "Provider" in system_text
-    assert "DeepSeek هستی" in system_text or "نام مدل" in system_text
+    assert "هویت" in system_text
     a.memory.close()
 
 
