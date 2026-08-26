@@ -84,8 +84,8 @@ class WifiScanner(context: Context) {
 
         return try {
             // startScan() is deprecated on modern Android and can be throttled.
-            // We still use the official API when available, then safely fall back
-            // to getScanResults() (which may contain cached results).
+            // We use the official API when available, then read getScanResults(),
+            // which can safely serve cached OS results when a fresh scan is throttled.
             wifiManager.startScan()
             val results = wifiManager.scanResults
                 .map { it.toWifiNetwork() }
@@ -154,7 +154,6 @@ class WifiScanner(context: Context) {
         ScanResult.WIFI_STANDARD_11AC -> "802.11ac"
         ScanResult.WIFI_STANDARD_11AX -> "802.11ax"
         ScanResult.WIFI_STANDARD_11AD -> "802.11ad"
-        ScanResult.WIFI_STANDARD_11BE -> "802.11be"
         else -> "unknown"
     }
 
