@@ -4,7 +4,17 @@ import json
 import logging
 import time
 
-from tools import files_tool, http_tool, network_tool, notes_tool, server_execution, shell_tool, termux_tool, web_research, wifi_tool
+from tools import (
+    files_tool,
+    http_tool,
+    network_tool,
+    notes_tool,
+    server_execution,
+    shell_tool,
+    termux_tool,
+    web_research,
+    wifi_tool,
+)
 from tools.base import Tool
 
 SERVER_SAFE = frozenset({"server", "local", "device"})
