@@ -4,6 +4,7 @@ from core.config import config
 from core.errors import ConfigurationError
 from providers.anthropic_provider import AnthropicProvider
 from providers.gemini_provider import GeminiProvider
+from providers.nara_provider import NaraProvider
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
 from providers.openrouter_provider import OpenRouterProvider
@@ -13,6 +14,7 @@ _CLASSES = {
     "openrouter": OpenRouterProvider,
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
+    "nara": NaraProvider,
     "ollama": OllamaProvider,
 }
 _CACHE: dict[str, object] = {}
