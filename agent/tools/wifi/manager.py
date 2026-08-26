@@ -22,38 +22,34 @@ def _command_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _termux_api(name: str) -> str:
+    return _run(name, 10) if _command_exists(name) else ""
+
+
 def _getprop(name: str) -> str:
     if not _command_exists("getprop"):
         return "unknown"
-    value = _run(f"getprop {name}")
-    return value or "unknown"
+    return _run(f"getprop {name}") or "unknown"
 
 
 def wifi_manager(_args: dict) -> dict:
-    ssid = _getprop("gsm.wifi.ssid")
-    if ssid in ("", "unknown"):
-        ssid = _getprop("dhcp.wlan0.hostname")
+    connection = _termux_api("termux-wifi-connectioninfo")
     ip = _run("ip -4 addr show wlan0 2>/dev/null | awk '/inet /{print $2}' | head -1")
     gateway = _run("ip route 2>/dev/null | awk '/default/{print $3; exit}'")
     dns = _run("getprop | grep -E '\\[net\\.(dns[0-9]*)\\]' | head -4")
     iface = _run("ip route 2>/dev/null | awk '/default/{print $5; exit}'")
     return {
+        "connection_info": connection or "Termux:API connection info unavailable",
         "connected": bool(gateway and gateway not in {"command_not_found", "timeout"}),
-        "ssid": ssid,
-        "ip": ip or "unknown",
-        "gateway": gateway or "unknown",
-        "dns": dns or "unknown",
-        "interface": iface or "unknown",
-        "signal": "not_available_without_platform_adapter",
+        "ip": ip or "unknown", "gateway": gateway or "unknown",
+        "dns": dns or "unknown", "interface": iface or "unknown",
+        "signal": "see Termux:API connection_info when available",
+        "ssid_hint": _getprop("dhcp.wlan0.hostname") if not connection else "see connection_info",
     }
 
 
 def network_info(_args: dict) -> dict:
-    return {
-        "interfaces": _run("ip -brief addr 2>/dev/null || ip addr").splitlines()[:40],
-        "routes": _run("ip route 2>/dev/null").splitlines()[:40],
-        "dns": _run("getprop | grep -E '\\[net\\.(dns[0-9]*)\\]'").splitlines()[:10],
-    }
+    return {"interfaces": _run("ip -brief addr 2>/dev/null || ip addr").splitlines()[:40], "routes": _run("ip route 2>/dev/null").splitlines()[:40], "dns": _run("getprop | grep -E '\\[net\\.(dns[0-9]*)\\]'").splitlines()[:10]}
 
 
 def connectivity(_args: dict) -> dict:
@@ -86,18 +82,26 @@ def dns_lookup(args: dict) -> str:
         return f"dns_error: {exc}"
 
 
+def traceroute(args: dict) -> str:
+    host = str(args.get("host", "1.1.1.1")).strip()
+    if not host or any(ch in host for ch in ";&|`$()<>\n\r"):
+        return "invalid_host"
+    cmd = "traceroute" if _command_exists("traceroute") else ("tracepath" if _command_exists("tracepath") else "")
+    if not cmd:
+        return "traceroute/tracepath is not installed"
+    return _run(f"{cmd} -m 8 {host}", timeout=20)
+
+
 def wifi_interface_info(_args: dict) -> dict:
-    return {
-        "wlan0": _run("ip -details link show wlan0 2>/dev/null"),
-        "wireless_tools": {name: _command_exists(name) for name in ("iw", "nmcli")},
-    }
+    return {"wlan0": _run("ip -details link show wlan0 2>/dev/null"), "wireless_tools": {name: _command_exists(name) for name in ("iw", "nmcli")}}
 
 
 def wifi_scan(_args: dict) -> str:
     if _command_exists("nmcli"):
         return _run("nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list", timeout=15)
-    if _command_exists("termux-wifi-scaninfo"):
-        return _run("termux-wifi-scaninfo", timeout=15)
+    scan = _termux_api("termux-wifi-scaninfo")
+    if scan:
+        return scan
     return "Wi-Fi scan is unavailable. Install/configure nmcli or Termux:API."
 
 
@@ -111,13 +115,4 @@ def network_scan(args: dict) -> str:
 
 
 def build_wifi_tools():
-    return {
-        "wifi_manager": wifi_manager,
-        "network_info": network_info,
-        "connectivity": connectivity,
-        "ping": ping,
-        "dns_lookup": dns_lookup,
-        "wifi_interface_info": wifi_interface_info,
-        "wifi_scan": wifi_scan,
-        "network_scan": network_scan,
-    }
+    return {"wifi_manager": wifi_manager, "network_info": network_info, "connectivity": connectivity, "ping": ping, "dns_lookup": dns_lookup, "traceroute": traceroute, "wifi_interface_info": wifi_interface_info, "wifi_scan": wifi_scan, "network_scan": network_scan}
