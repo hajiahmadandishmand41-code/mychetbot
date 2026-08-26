@@ -53,6 +53,11 @@ class TelegramClient:
         if not self.enabled:
             log.info("Telegram integration disabled: required environment variables are missing")
             return
+
+        me = await self._call("getMe", {})
+        bot = me.get("result") or {}
+        log.info("Telegram bot authenticated: id=%s username=@%s", bot.get("id"), bot.get("username", "unknown"))
+
         webhook = self.webhook_url.rstrip("/") + "/telegram/webhook"
         await self._call(
             "setWebhook",
@@ -63,7 +68,16 @@ class TelegramClient:
                 "drop_pending_updates": False,
             },
         )
-        log.info("Telegram webhook configured")
+
+        info = await self._call("getWebhookInfo", {})
+        webhook_info = info.get("result") or {}
+        last_error = webhook_info.get("last_error_message")
+        last_error_date = webhook_info.get("last_error_date")
+        pending = webhook_info.get("pending_update_count", 0)
+        if last_error:
+            log.error("Telegram webhook error: %s (date=%s)", last_error, last_error_date)
+        else:
+            log.info("Telegram webhook healthy: pending_updates=%s", pending)
 
     async def handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message")
