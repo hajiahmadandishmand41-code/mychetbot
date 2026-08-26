@@ -12,7 +12,7 @@ async def test_router_uses_nara_and_environment_model(monkeypatch):
     monkeypatch.setattr(router_module.config, "default_model", "env-model")
     calls = {}
 
-    async def fake_chat(messages, model=None, **kwargs):
+    async def fake_chat(self, messages, model=None, **kwargs):
         calls["model"] = model
         return "سلام"
 
