@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from core.config import config
 from core.logger import get_logger
@@ -22,7 +21,7 @@ SYSTEM_PROMPT = """تو MyChatBot هستی؛ یک دستیار هوشمند گف
 - Context و حافظه ذخیره‌شده را فقط وقتی مرتبط است به کار ببر. هرگز چیزی را که در حافظه نیست حدس نزن.
 - درباره دسترسی به اینترنت، فایل‌ها، دستگاه یا اطلاعات خصوصی ادعای ساختگی نکن.
 - اطلاعات نادرست یا ساختگی تولید نکن و در صورت نبود داده کافی، شفاف بگو چه چیزی نامشخص است.
-- از عبارت‌های کلیشه‌ای و تکراری مانند «در خدمتم» و «اگر سؤال دیگری دارید» بیش از حد استفاده نکن.
+- از عبارت‌های کلیشه‌ای و تکراری بیش از حد استفاده نکن.
 - این سیستم یک Chatbot است؛ هیچ ابزار دستگاه، Wi‑Fi، شبکه، Shell، Termux یا automation در مسیر پاسخ‌گویی ندارد.
 - Memory به معنی افزایش دانش شخصی و Context است، نه آموزش یا تغییر وزن‌های مدل.
 
@@ -33,8 +32,8 @@ SYSTEM_PROMPT = """تو MyChatBot هستی؛ یک دستیار هوشمند گف
 """
 
 _NAME_PATTERNS = (
-    re.compile(r"(?:اسم|نام)\s*(?:من)?\s*(?:است|هست|می‌شه|میشه|=)\s*([\u0600-\u06FFA-Za-z][\u0600-\u06FFA-Za-z .'-]{1,60})$", re.I),
-    re.compile(r"(?:من|my name is)\s+([\u0600-\u06FFA-Za-z][\u0600-\u06FFA-Za-z .'-]{1,60})$", re.I),
+    re.compile(r"(?:اسم|نام)\s*(?:من\s*)?(?:=|:|،)?\s*([\u0600-\u06FFA-Za-z][\u0600-\u06FFA-Za-z .'-]{0,60}?)\s*(?:است|هست|هستم|می‌باشد|میباشد)$", re.I),
+    re.compile(r"(?:من\s+|my name is\s+)([\u0600-\u06FFA-Za-z][\u0600-\u06FFA-Za-z .'-]{0,60})$", re.I),
 )
 _PREFERENCE_PATTERNS = (
     ("response_preference", re.compile(r"(?:دوست دارم|ترجیح می‌دهم|ترجیح میدم|می‌خواهم|میخوام).*?(?:جواب|پاسخ).*?(کوتاه|مختصر|طولانی|کامل|رسمی|خودمانی)", re.I)),
@@ -52,6 +51,8 @@ class Agent:
     """Memory-first chat orchestrator. No tool execution is part of the chat path."""
 
     def __init__(self, session: str = "default"):
+        if not session or len(session) > 100:
+            raise ValueError("session must be between 1 and 100 characters")
         self.session = session
         self.memory = Memory()
         self.router = Router()
