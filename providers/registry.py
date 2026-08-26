@@ -2,33 +2,21 @@ from __future__ import annotations
 
 from core.config import config
 from core.errors import ConfigurationError
-from providers.anthropic_provider import AnthropicProvider
-from providers.gemini_provider import GeminiProvider
 from providers.nara_provider import NaraProvider
-from providers.ollama_provider import OllamaProvider
-from providers.openai_provider import OpenAIProvider
-from providers.openrouter_provider import OpenRouterProvider
 
-_CLASSES = {
-    "openai": OpenAIProvider,
-    "openrouter": OpenRouterProvider,
-    "anthropic": AnthropicProvider,
-    "gemini": GeminiProvider,
-    "nara": NaraProvider,
-    "ollama": OllamaProvider,
-}
-_CACHE: dict[str, object] = {}
+_CACHE: NaraProvider | None = None
 
 
 def list_providers() -> list[str]:
-    return config.available_providers()
+    return ["nara"] if config.nara_key else []
 
 
-def get_provider(name: str):
-    if name not in _CLASSES:
-        raise ConfigurationError(f"provider ناشناخته: {name}")
-    if not config.provider_configured(name):
-        raise ConfigurationError(f"provider '{name}' تنظیم نشده است")
-    if name not in _CACHE:
-        _CACHE[name] = _CLASSES[name]()
-    return _CACHE[name]
+def get_provider(name: str = "nara") -> NaraProvider:
+    if name != "nara":
+        raise ConfigurationError("only the Nara chat provider is enabled")
+    if not config.nara_key:
+        raise ConfigurationError("NARA_API_KEY is not configured")
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = NaraProvider()
+    return _CACHE

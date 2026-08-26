@@ -6,18 +6,27 @@ from interfaces.api_server import app
 client = TestClient(app)
 
 
-def test_health_is_public_and_provider_independent():
+def test_health_is_public_and_chat_only():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["chat_provider"] == "nara"
+    assert "tools" not in body
 
 
-def test_protected_tools_require_api_token(monkeypatch):
+def test_chat_requires_api_token(monkeypatch):
     from core.config import config
 
     monkeypatch.setattr(config, "api_token", "test-token")
-    response = client.get("/tools")
+    response = client.post("/chat", json={"message": "سلام", "session": "s"})
     assert response.status_code == 401
-    response = client.get("/tools", headers={"Authorization": "Bearer test-token"})
-    assert response.status_code == 200
-    assert response.json()["profile"] == config.api_tool_profile
+
+
+def test_history_and_memory_delete_are_protected(monkeypatch):
+    from core.config import config
+
+    monkeypatch.setattr(config, "api_token", "test-token")
+    headers = {"Authorization": "Bearer test-token"}
+    assert client.get("/history/s", headers=headers).status_code == 200
+    assert client.delete("/memory/s", headers=headers).status_code == 200
