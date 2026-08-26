@@ -10,7 +10,6 @@ from typing import Any
 
 from core.agent_impl import SYSTEM_PROMPT, TOOL_PLANNER_PROMPT
 from core.agent_impl import Agent as _Agent
-from core.config import config
 from tools.registry import run_tool
 
 _NAME_QUERY = re.compile(
@@ -31,13 +30,25 @@ class Agent(_Agent):
 
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
         tool = plan["tool"]
-        result = run_tool(tool, plan.get("args", {}), profile=config.tool_profile)
+        # Preserve the per-chat session so server_execute and future scoped tools
+        # cannot accidentally lose Telegram/API permission isolation.
+        result = await self._run_tool_with_timeout(
+            tool,
+            plan.get("args", {}),
+            run_tool,
+        )
         self.memory.add(
             self.session,
             "tool",
             json.dumps({"tool": tool, "result": result}, ensure_ascii=False),
         )
         return result
+
+    async def _run_tool_with_timeout(self, tool: str, args: dict[str, Any], runner) -> str:
+        # Delegate to the canonical orchestrator implementation while retaining
+        # this compatibility hook. The implementation has already validated the
+        # tool, profile, session and resource limits.
+        return await super()._run_internal_tool({"tool": tool, "args": args})
 
 
 __all__ = ["Agent", "SYSTEM_PROMPT", "TOOL_PLANNER_PROMPT", "run_tool"]
