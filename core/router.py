@@ -6,7 +6,7 @@ from core.logger import get_logger
 from providers.registry import get_provider, list_providers
 
 log = get_logger("router")
-FALLBACK_ORDER = ["openrouter", "openai", "anthropic", "gemini", "ollama"]
+FALLBACK_ORDER = ["nara", "openrouter", "openai", "anthropic", "gemini", "ollama"]
 
 
 class Router:
