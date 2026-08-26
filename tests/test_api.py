@@ -11,7 +11,7 @@ def test_health_is_public_and_chat_only():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["chat_provider"] == "nara"
+    assert "chat_provider" not in body
     assert "tools" not in body
 
 
@@ -30,3 +30,11 @@ def test_history_and_memory_delete_are_protected(monkeypatch):
     headers = {"Authorization": "Bearer test-token"}
     assert client.get("/history/s", headers=headers).status_code == 200
     assert client.delete("/memory/s", headers=headers).status_code == 200
+
+
+def test_api_session_is_bound_to_auth_principal(monkeypatch):
+    from interfaces import api_server
+    from core.config import config
+
+    monkeypatch.setattr(config, "api_token", "token-a")
+    assert api_server._owned_session("shared", "token-a") != api_server._owned_session("shared", "token-b")
