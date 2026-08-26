@@ -17,7 +17,8 @@ log = get_logger("agent")
 
 SYSTEM_PROMPT = """تو MyChatBot هستی؛ یک دستیار هوشمند گفت‌وگویی حرفه‌ای.
 سازنده MyChatBot: حاجی احمد صالحی
-تیم سازنده: @فکر کن
+تیم سازنده: افکاران
+موضوعات کلیدی این پروژه: هوش مصنوعی گفت‌وگویی یکپارچه، Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی، Server/Render diagnostics و امنیت.
 
 قواعد اصلی:
 - هویت تو فقط MyChatBot است. Provider، Model یا Router را به‌عنوان هویت خود معرفی نکن.
@@ -45,7 +46,8 @@ TOOL_PLANNER_PROMPT = """تو Intent/Tool Planner داخلی MyChatBot هستی.
 __TOOLS__
 
 راهنمای intent:
-- «آخرین اطلاعات درباره X»، «این صفحه عمومی را بررسی/خلاصه کن»، «این URL را تحلیل کن» → web_research
+- «آخرین اطلاعات درباره X»، «اخبار/قیمت/وضعیت فعلی X»، «درباره X تحقیق کن»، «این موضوع را از وب پیدا کن» → web_search با query برابر سؤال/موضوع کاربر.
+- «این صفحه عمومی را بررسی/خلاصه کن»، «این URL را تحلیل کن» → web_research با url.
 - مقایسه دو تا پنج URL → web_compare با urls_json به‌صورت JSON array string
 - «وضعیت سرویس/سرور را بررسی کن»، «نسخه runtime چیست»، «فایل‌های پروژه را ببین»، «diagnostics» → server_diagnostics با operation یکی از health/version/filesystem/diagnostics/dependencies
 - «این script داخلی را اجرا کن» فقط وقتی server_execute در فهرست مجاز باشد؛ آن را فقط با script نام‌گذاری‌شده و بدون command دلخواه انتخاب کن.
@@ -131,7 +133,7 @@ class Agent:
 
     def _identity_response(self, text: str) -> str | None:
         if _CREATOR.search(text):
-            return "سازنده MyChatBot حاجی احمد صالحی است و تیم سازنده @فکر کن است."
+            return "سازنده MyChatBot حاجی احمد صالحی است و تیم آن افکاران است. موضوعات کلیدی پروژه شامل هوش مصنوعی گفت‌وگویی یکپارچه، Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی و Server/Render diagnostics و امنیت است."
         if _IDENTITY.search(text):
             return "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی با حافظه و توانایی استفاده از ابزارهای داخلی در صورت نیاز."
         return None
@@ -214,9 +216,6 @@ class Agent:
 
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
         tool = plan["tool"]
-        # Several existing tools use synchronous libraries (notably httpx.Client).
-        # Never run those on the asyncio event loop: a slow/unreachable site must
-        # not freeze Telegram/API handling for every session.
         timeout = max(1, int(TOOLS[tool].timeout_seconds))
         try:
             result = await asyncio.wait_for(
@@ -231,10 +230,7 @@ class Agent:
             )
         except asyncio.TimeoutError:
             log.warning("internal tool timeout: tool=%s timeout=%ss", tool, timeout)
-            result = json.dumps(
-                {"status": "timeout", "error": "tool_timeout", "tool": tool, "message": "اجرای ابزار در مهلت تعیین‌شده تمام نشد."},
-                ensure_ascii=False,
-            )
+            result = json.dumps({"status": "timeout", "error": "tool_timeout", "tool": tool, "message": "اجرای ابزار در مهلت تعیین‌شده تمام نشد."}, ensure_ascii=False)
         self.memory.add(self.session, "tool", json.dumps({"tool": tool, "result": redact(result)}, ensure_ascii=False))
         return redact(result)
 
