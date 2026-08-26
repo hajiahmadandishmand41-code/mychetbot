@@ -21,10 +21,12 @@ class NaraProvider(BaseProvider):
             {
                 "model": selected_model,
                 "messages": messages,
-                "temperature": kw.get("temperature", 0.4),
             },
         )
         try:
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ValueError("NaraRouter returned an unexpected response") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("NaraRouter returned empty assistant content")
+        return content

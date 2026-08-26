@@ -30,7 +30,9 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 
 @dataclass
 class Config:
-    default_model: str = os.getenv("DEFAULT_MODEL", "").strip()
+    # Keep a known-good Nara-compatible default for deployments that omit the
+    # optional DEFAULT_MODEL variable. Operators can override it explicitly.
+    default_model: str = os.getenv("DEFAULT_MODEL", "agnes-2.0-flash").strip() or "agnes-2.0-flash"
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
     openai_key: str = os.getenv("OPENAI_API_KEY", "").strip()
@@ -62,7 +64,7 @@ class Config:
     shell_whitelist: tuple[str, ...] = _csv(os.getenv("SHELL_WHITELIST"), ("pwd", "ls", "whoami", "uname", "date"))
     auto_tools: tuple[str, ...] = _csv(
         os.getenv("AUTO_TOOLS"),
-        ("wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report", "battery", "local_ip", "ping", "dns_lookup", "port_check", "web_research", "web_compare", "server_diagnostics"),
+        ("wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report", "battery", "local_ip", "ping", "dns_lookup", "port_check", "web_search", "web_research", "web_compare", "server_diagnostics"),
     )
     tool_profile: str = os.getenv("TOOL_PROFILE", "local").strip() or "local"
     web_enabled: bool = _bool(os.getenv("WEB_RESEARCH_ENABLED"), True)

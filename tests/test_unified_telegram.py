@@ -4,6 +4,8 @@ import pytest
 
 from core.agent import Agent
 from core.config import config
+from providers.nara_provider import NaraProvider
+from interfaces.telegram import TelegramClient
 
 
 @pytest.fixture
@@ -65,3 +67,34 @@ async def test_agent_tool_execution_preserves_session(monkeypatch, isolated_memo
     assert json.loads(result)["status"] == "success"
     assert captured["session"] == "tg:12345"
     agent.memory.close()
+
+
+def test_telegram_facade_uses_unified_agent_session(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    client = TelegramClient()
+    agent = client._agent("telegram:987")
+    assert isinstance(agent, Agent)
+    assert agent.session == "telegram:987"
+    agent.memory.close()
+
+
+def test_web_search_is_auto_selectable_by_default():
+    assert "web_search" in config.auto_tools
+
+
+@pytest.mark.asyncio
+async def test_nara_provider_uses_minimal_payload(monkeypatch):
+    provider = NaraProvider()
+    captured = {}
+
+    async def fake_post(url, headers, payload):
+        captured.update(url=url, headers=headers, payload=payload)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    answer = await provider.chat([{"role": "user", "content": "سلام"}], model="agnes-2.0-flash", temperature=0)
+    assert answer == "ok"
+    assert captured["payload"] == {
+        "model": "agnes-2.0-flash",
+        "messages": [{"role": "user", "content": "سلام"}],
+    }
