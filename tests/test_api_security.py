@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from core.config import config
-from interfaces.api_server import ChatIn, _SESSION_RE, _auth, _rate_limit_key
+from interfaces.api_server import _SESSION_RE, ChatIn, _auth, _rate_limit_key
 
 
 def test_session_validation():
