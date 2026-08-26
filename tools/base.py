@@ -1,14 +1,21 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Callable, Any
 
-@dataclass
+from dataclasses import dataclass
+from typing import Any, Callable
+
+
+@dataclass(frozen=True)
 class Tool:
     name: str
     description: str
     args: dict[str, str]
     func: Callable[..., Any]
     dangerous: bool = False
+    profiles: frozenset[str] = frozenset({"local", "device"})
+    unavailable_message: str = "This tool is unavailable in the current runtime."
+
+    def available_in(self, profile: str) -> bool:
+        return profile in self.profiles
 
     def run(self, args: dict) -> str:
         try:

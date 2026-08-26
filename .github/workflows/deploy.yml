@@ -1,0 +1,151 @@
+name: Production Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Select source revision
+        id: revision
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out source revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.revision.outputs.sha }}
+
+      - name: Ensure workflow run is still current main
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ steps.revision.outputs.sha }}
+        run: |
+          MAIN_SHA="$(gh api repos/${GITHUB_REPOSITORY}/branches/main --jq '.commit.sha')"
+          if [[ "$MAIN_SHA" != "$RUN_SHA" ]]; then
+            echo "A newer commit is already on main; skipping superseded deployment."
+            exit 78
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build immutable release image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.revision.outputs.sha }}
+            ${{ env.IMAGE_NAME }}:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start image and verify health
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ steps.revision.outputs.sha }}
+        run: |
+          docker run -d --name mychatbot-release \
+            -e TOOL_PROFILE=server \
+            -e API_TOOL_PROFILE=server \
+            -e MYCHATBOT_DATA=/data \
+            -p 127.0.0.1:8765:8765 \
+            "$IMAGE_REF"
+          cleanup() { docker rm -f mychatbot-release >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8765/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs mychatbot-release
+          exit 1
+
+      - name: Publish immutable image tags
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ steps.revision.outputs.sha }}
+          IMAGE_MAIN: ${{ env.IMAGE_NAME }}:main
+        run: |
+          docker push "$IMAGE_REF"
+          docker push "$IMAGE_MAIN"
+
+      - name: Validate deployment secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          test -n "$VPS_SSH_PRIVATE_KEY"
+          test -n "$VPS_KNOWN_HOSTS"
+          test -n "$VPS_DEPLOY_PATH"
+
+      - name: Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ steps.revision.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_FILE="$(mktemp)"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          umask 077
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$KEY_FILE"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          PORT="${VPS_PORT:-22}"
+
+          SSH=(ssh -i "$KEY_FILE" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$PORT")
+          SCP=(scp -i "$KEY_FILE" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -P "$PORT")
+
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_DEPLOY_PATH/deploy' '$VPS_DEPLOY_PATH/data' && test -f '$VPS_DEPLOY_PATH/.env.production'"
+          "${SCP[@]}" compose.yaml "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/compose.yaml"
+          "${SCP[@]}" deploy/Caddyfile "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/deploy/Caddyfile"
+          "${SCP[@]}" deploy/deploy.sh "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/deploy/deploy.sh"
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" "chmod 750 '$VPS_DEPLOY_PATH/data' '$VPS_DEPLOY_PATH/deploy' && chmod 750 '$VPS_DEPLOY_PATH/deploy/deploy.sh' && DEPLOY_DIR='$VPS_DEPLOY_PATH' IMAGE_REF='$IMAGE_REF' '$VPS_DEPLOY_PATH/deploy/deploy.sh'"
