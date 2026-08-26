@@ -16,8 +16,6 @@ from core.errors import ConfigurationError, ProviderError
 from core.logger import get_logger
 from core.security import constant_time_eq, redact
 from interfaces.telegram import telegram_client
-from providers.registry import list_providers
-from tools.registry import tool_specs
 
 log = get_logger("api")
 
@@ -31,7 +29,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="MyChatBot API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="MyChatBot API", version="1.0.0", lifespan=lifespan)
 _agents: dict[str, Agent] = {}
 _agent_locks: dict[str, asyncio.Lock] = {}
 _agents_lock = threading.RLock()
@@ -39,10 +37,8 @@ _SESSION_RE = re.compile(r"^[A-Za-z0-9:_-]{1,100}$")
 
 
 class ChatIn(BaseModel):
-    message: str = Field(min_length=1, max_length=12000)
+    message: str = Field(min_length=1, max_length=50000)
     session: str = Field(default="mobile", min_length=1, max_length=100)
-    provider: str | None = Field(default=None, max_length=50)
-    model: str | None = Field(default=None, max_length=200)
 
     @field_validator("message")
     @classmethod
@@ -50,6 +46,8 @@ class ChatIn(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("message must not be blank")
+        if len(value) > config.max_input_chars:
+            raise ValueError("message is too long")
         return value
 
     @field_validator("session")
@@ -59,12 +57,6 @@ class ChatIn(BaseModel):
         if not _SESSION_RE.fullmatch(value):
             raise ValueError("session contains unsupported characters")
         return value
-
-    @field_validator("provider", "model")
-    @classmethod
-    def trim_optional(cls, value: str | None) -> str | None:
-        value = value.strip() if value else None
-        return value or None
 
 
 class RateLimiter:
@@ -111,45 +103,33 @@ def _rate_limit_key(body: ChatIn, request: Request) -> str:
     return f"{source}:{body.session}"
 
 
-def _agent_key(body: ChatIn) -> str:
-    return f"{body.session}:{body.provider or ''}:{body.model or ''}"
-
-
-def _get_agent(body: ChatIn) -> Agent:
-    key = _agent_key(body)
+def _get_agent(session: str) -> Agent:
     with _agents_lock:
-        agent = _agents.get(key)
+        agent = _agents.get(session)
         if agent is None:
             if len(_agents) >= 128:
                 oldest_key = next(iter(_agents))
                 oldest = _agents.pop(oldest_key)
                 oldest.memory.close()
                 _agent_locks.pop(oldest_key, None)
-            agent = Agent(body.session, body.provider, body.model, tool_profile=config.api_tool_profile)
-            _agents[key] = agent
+            agent = Agent(session)
+            _agents[session] = agent
         return agent
 
 
-def _get_agent_lock(key: str) -> asyncio.Lock:
+def _get_agent_lock(session: str) -> asyncio.Lock:
     with _agents_lock:
-        return _agent_locks.setdefault(key, asyncio.Lock())
+        return _agent_locks.setdefault(session, asyncio.Lock())
 
 
 @app.get("/health")
 def health() -> dict:
     return {
         "status": "ok",
-        "providers": list_providers(),
+        "chat_provider": "nara",
         "api_auth_configured": bool(config.api_token),
-        "tool_profile": config.api_tool_profile,
         "telegram_configured": telegram_client.enabled,
     }
-
-
-@app.get("/tools")
-def tools(authorization: str | None = Header(default=None)):
-    _auth(authorization)
-    return {"tools": tool_specs(config.api_tool_profile)}
 
 
 @app.post("/telegram/webhook")
@@ -171,9 +151,8 @@ async def chat(body: ChatIn, request: Request, authorization: str | None = Heade
     _auth(authorization)
     if not _rate_limiter.allow(_rate_limit_key(body, request)):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
-    key = _agent_key(body)
-    agent = _get_agent(body)
-    async with _get_agent_lock(key):
+    agent = _get_agent(body.session)
+    async with _get_agent_lock(body.session):
         try:
             answer = await agent.ask(body.message)
         except ConfigurationError as exc:
@@ -195,6 +174,16 @@ def history(session: str, authorization: str | None = Header(default=None)):
     session = session.strip()
     if not _SESSION_RE.fullmatch(session):
         raise HTTPException(status_code=400, detail="invalid session")
-    body = ChatIn(message="history", session=session)
-    agent = _get_agent(body)
+    agent = _get_agent(session)
     return {"messages": [m.to_dict() for m in agent.memory.history(session, 50)]}
+
+
+@app.delete("/memory/{session}")
+def clear_memory(session: str, authorization: str | None = Header(default=None)):
+    _auth(authorization)
+    session = session.strip()
+    if not _SESSION_RE.fullmatch(session):
+        raise HTTPException(status_code=400, detail="invalid session")
+    agent = _get_agent(session)
+    agent.memory.clear(session)
+    return {"ok": True, "session": session}
