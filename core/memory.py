@@ -45,7 +45,7 @@ class Message:
 
 
 class Memory:
-    """SQLite-backed persistent memory with isolated sessions and relevance retrieval."""
+    """SQLite-backed persistent memory with session isolation, bounded growth and relevance retrieval."""
 
     def __init__(self, path: str | None = None):
         self.path = path or os.path.join(config.data_dir, "memory.db")
@@ -70,12 +70,24 @@ class Memory:
             raise ValueError(f"unsupported role: {role}")
         if not isinstance(content, str) or not content.strip():
             raise ValueError("content must not be empty")
+        bounded = content.strip()[: config.memory_max_message_chars]
         with self._lock:
             self.conn.execute(
                 "INSERT INTO messages(session, role, content, ts) VALUES (?,?,?,?)",
-                (session, role, content, time.time()),
+                (session, role, bounded, time.time()),
             )
+            self._trim_session_messages(session)
             self.conn.commit()
+
+    def _trim_session_messages(self, session: str) -> None:
+        excess = self.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE session=?", (session,)
+        ).fetchone()[0] - config.memory_max_messages
+        if excess > 0:
+            self.conn.execute(
+                "DELETE FROM messages WHERE id IN (SELECT id FROM messages WHERE session=? ORDER BY id ASC LIMIT ?)",
+                (session, excess),
+            )
 
     def recent_history(self, session: str, limit: int = 12) -> list[dict[str, str]]:
         return [m.to_dict() for m in self.history(session, limit=limit)]
@@ -121,13 +133,17 @@ class Memory:
 
     def remember(self, key: str, value: str, session: str = "default") -> None:
         key = key.strip()
-        value = value.strip()
+        value = value.strip()[:500]
         if not session or not key or not value:
             raise ValueError("session, key and value must not be empty")
         with self._lock:
             self.conn.execute(
                 "INSERT OR REPLACE INTO facts(session, key, value, ts) VALUES (?,?,?,?)",
-                (session, key, value[:500], time.time()),
+                (session, key, value, time.time()),
+            )
+            self.conn.execute(
+                "DELETE FROM facts WHERE session=? AND key NOT IN (SELECT key FROM facts WHERE session=? ORDER BY ts DESC LIMIT ?)",
+                (session, session, config.memory_max_facts),
             )
             self.conn.commit()
 
