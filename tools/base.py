@@ -11,12 +11,17 @@ class Tool:
     args: dict[str, str]
     func: Callable[..., Any]
     dangerous: bool = False
-    profiles: frozenset[str] = frozenset({"local", "device"})
+    profiles: frozenset[str] = frozenset({"local", "device", "server"})
     unavailable_message: str = "This tool is unavailable in the current runtime."
     risk_level: str = "low"
     permission_scope: str = "read"
     runtime_requirements: tuple[str, ...] = field(default_factory=tuple)
     timeout_seconds: float = 10.0
+    memory_limit_mb: int = 128
+    process_limit: int = 8
+    output_limit_chars: int = 4_000
+    working_directory: str = "."
+    allowed_environment: tuple[str, ...] = field(default_factory=tuple)
     result_schema: str = "string"
     auto_selectable: bool = True
 
@@ -29,6 +34,8 @@ class Tool:
             raise ValueError(f"invalid permission_scope: {self.permission_scope}")
         if self.timeout_seconds <= 0 or self.timeout_seconds > 120:
             raise ValueError("timeout_seconds must be between 0 and 120")
+        if self.memory_limit_mb <= 0 or self.process_limit <= 0 or self.output_limit_chars <= 0:
+            raise ValueError("resource limits must be positive")
 
     @property
     def input_schema(self) -> dict[str, str]:
@@ -60,6 +67,11 @@ class Tool:
             "permission_scope": self.permission_scope,
             "runtime_requirements": list(self.runtime_requirements),
             "timeout": self.timeout_seconds,
+            "memory_limit_mb": self.memory_limit_mb,
+            "process_limit": self.process_limit,
+            "output_limit_chars": self.output_limit_chars,
+            "working_directory": self.working_directory,
+            "allowed_environment": list(self.allowed_environment),
             "availability": sorted(self.profiles),
             "result_schema": self.result_schema,
             "auto_selectable": self.auto_selectable,
