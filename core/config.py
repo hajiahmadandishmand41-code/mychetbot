@@ -70,7 +70,7 @@ class Config:
     web_max_redirects: int = _int(os.getenv("WEB_MAX_REDIRECTS"), 3)
     web_connect_timeout: int = _int(os.getenv("WEB_CONNECT_TIMEOUT"), 8)
     web_read_timeout: int = _int(os.getenv("WEB_READ_TIMEOUT"), 15)
-    server_execution_enabled: bool = _bool(os.getenv("SERVER_EXECUTION_ENABLED"), True)
+    server_execution_enabled: bool = _bool(os.getenv("SERVER_EXECUTION_ENABLED"), False)
     server_timeout_seconds: int = _int(os.getenv("SERVER_TIMEOUT_SECONDS"), 20)
     server_memory_limit_mb: int = _int(os.getenv("SERVER_MEMORY_LIMIT_MB"), 256)
     server_process_limit: int = _int(os.getenv("SERVER_PROCESS_LIMIT"), 16)
