@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 import time
@@ -19,6 +20,7 @@ from tools.registry import tool_specs
 log = get_logger("api")
 app = FastAPI(title="MyChatBot API", version="0.3.0")
 _agents: dict[str, Agent] = {}
+_agent_locks: dict[str, asyncio.Lock] = {}
 _agents_lock = threading.RLock()
 _SESSION_RE = re.compile(r"^[A-Za-z0-9:_-]{1,100}$")
 
@@ -26,8 +28,8 @@ _SESSION_RE = re.compile(r"^[A-Za-z0-9:_-]{1,100}$")
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
     session: str = Field(default="mobile", min_length=1, max_length=100)
-    provider: str | None = None
-    model: str | None = None
+    provider: str | None = Field(default=None, max_length=50)
+    model: str | None = Field(default=None, max_length=200)
 
     @field_validator("message")
     @classmethod
@@ -40,6 +42,7 @@ class ChatIn(BaseModel):
     @field_validator("session")
     @classmethod
     def validate_session(cls, value: str) -> str:
+        value = value.strip()
         if not _SESSION_RE.fullmatch(value):
             raise ValueError("session contains unsupported characters")
         return value
@@ -47,7 +50,8 @@ class ChatIn(BaseModel):
     @field_validator("provider", "model")
     @classmethod
     def trim_optional(cls, value: str | None) -> str | None:
-        return value.strip() if value else None
+        value = value.strip() if value else None
+        return value or None
 
 
 class RateLimiter:
@@ -68,8 +72,8 @@ class RateLimiter:
             hits.append(now)
             if len(self._hits) > 2048:
                 stale = [k for k, q in self._hits.items() if not q or now - q[-1] >= self.window_seconds]
-                for k in stale[:512]:
-                    self._hits.pop(k, None)
+                for key_to_remove in stale[:512]:
+                    self._hits.pop(key_to_remove, None)
             return True
 
 
@@ -87,13 +91,19 @@ def _auth(authorization: str | None) -> None:
 
 
 def _rate_limit_key(body: ChatIn, request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    source = forwarded or (request.client.host if request.client else "unknown")
+    source = request.client.host if request.client else "unknown"
+    if config.trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+        source = forwarded or source
     return f"{source}:{body.session}"
 
 
+def _agent_key(body: ChatIn) -> str:
+    return f"{body.session}:{body.provider or ''}:{body.model or ''}"
+
+
 def _get_agent(body: ChatIn) -> Agent:
-    key = f"{body.session}:{body.provider or ''}:{body.model or ''}"
+    key = _agent_key(body)
     with _agents_lock:
         agent = _agents.get(key)
         if agent is None:
@@ -101,9 +111,15 @@ def _get_agent(body: ChatIn) -> Agent:
                 oldest_key = next(iter(_agents))
                 oldest = _agents.pop(oldest_key)
                 oldest.memory.close()
-            agent = Agent(body.session, body.provider, body.model)
+                _agent_locks.pop(oldest_key, None)
+            agent = Agent(body.session, body.provider, body.model, tool_profile=config.api_tool_profile)
             _agents[key] = agent
         return agent
+
+
+def _get_agent_lock(key: str) -> asyncio.Lock:
+    with _agents_lock:
+        return _agent_locks.setdefault(key, asyncio.Lock())
 
 
 @app.get("/health")
@@ -112,13 +128,14 @@ def health() -> dict:
         "status": "ok",
         "providers": list_providers(),
         "api_auth_configured": bool(config.api_token),
+        "tool_profile": config.api_tool_profile,
     }
 
 
 @app.get("/tools")
 def tools(authorization: str | None = Header(default=None)):
     _auth(authorization)
-    return {"tools": tool_specs()}
+    return {"tools": tool_specs(config.api_tool_profile)}
 
 
 @app.post("/chat")
@@ -126,26 +143,30 @@ async def chat(body: ChatIn, request: Request, authorization: str | None = Heade
     _auth(authorization)
     if not _rate_limiter.allow(_rate_limit_key(body, request)):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
+    key = _agent_key(body)
     agent = _get_agent(body)
-    try:
-        answer = await agent.ask(body.message)
-    except ConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ProviderError as exc:
-        log.warning("provider error: %s", exc.code)
-        raise HTTPException(status_code=502, detail=redact(exc.message)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        log.exception("unhandled chat error")
-        raise HTTPException(status_code=500, detail="internal server error") from exc
+    async with _get_agent_lock(key):
+        try:
+            answer = await agent.ask(body.message)
+        except ConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ProviderError as exc:
+            log.warning("provider error: %s", exc.code)
+            raise HTTPException(status_code=502, detail=redact(exc.message)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            log.exception("unhandled chat error")
+            raise HTTPException(status_code=500, detail="internal server error") from exc
     return {"reply": answer, "session": body.session}
 
 
 @app.get("/history/{session}")
 def history(session: str, authorization: str | None = Header(default=None)):
     _auth(authorization)
+    session = session.strip()
     if not _SESSION_RE.fullmatch(session):
         raise HTTPException(status_code=400, detail="invalid session")
-    agent = _get_agent(ChatIn(message="history", session=session))
+    body = ChatIn(message="history", session=session)
+    agent = _get_agent(body)
     return {"messages": [m.to_dict() for m in agent.memory.history(session, 50)]}
