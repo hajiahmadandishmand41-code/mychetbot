@@ -4,7 +4,6 @@ The implementation remains in :mod:`core.agent_impl`; this facade preserves
 stable public hooks for legacy callers/tests without removing any capability.
 """
 
-import json
 import re
 from typing import Any
 
@@ -29,26 +28,9 @@ class Agent(_Agent):
         super()._remember_from_message(user_input)
 
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
-        tool = plan["tool"]
-        # Preserve the per-chat session so server_execute and future scoped tools
-        # cannot accidentally lose Telegram/API permission isolation.
-        result = await self._run_tool_with_timeout(
-            tool,
-            plan.get("args", {}),
-            run_tool,
-        )
-        self.memory.add(
-            self.session,
-            "tool",
-            json.dumps({"tool": tool, "result": result}, ensure_ascii=False),
-        )
-        return result
-
-    async def _run_tool_with_timeout(self, tool: str, args: dict[str, Any], runner) -> str:
-        # Delegate to the canonical orchestrator implementation while retaining
-        # this compatibility hook. The implementation has already validated the
-        # tool, profile, session and resource limits.
-        return await super()._run_internal_tool({"tool": tool, "args": args})
+        # Delegate to the canonical implementation so profile/session/resource
+        # policy remains identical across Telegram, API, CLI and other callers.
+        return await super()._run_internal_tool(plan)
 
 
 __all__ = ["Agent", "SYSTEM_PROMPT", "TOOL_PLANNER_PROMPT", "run_tool"]
