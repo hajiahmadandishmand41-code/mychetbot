@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from core.config import config
 from core.logger import get_logger
 from core.memory import Memory
 from core.router import Router
@@ -26,14 +27,22 @@ TOOL_RE = re.compile(r'\{\s*"tool"\s*:\s*"[^"\n]+"\s*,\s*"args"\s*:\s*\{.*?\}\s*
 
 
 class Agent:
-    def __init__(self, session: str = "default", provider: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        session: str = "default",
+        provider: str | None = None,
+        model: str | None = None,
+        tool_profile: str | None = None,
+    ):
         self.session = session
         self.memory = Memory()
         self.router = Router(provider, model)
+        self.tool_profile = (tool_profile or config.tool_profile).strip().lower()
 
     def _system(self) -> dict[str, str]:
         specs = "\n".join(
-            f"- {s['name']}: {s['description']} args={s['args']}" for s in tool_specs()
+            f"- {s['name']}: {s['description']} args={s['args']}"
+            for s in tool_specs(self.tool_profile)
         )
         facts = self.memory.all_facts(self.session)
         extra = (
@@ -65,9 +74,9 @@ class Agent:
                 self.memory.add(self.session, "assistant", "درخواست ابزار نامعتبر بود.")
                 return "درخواست ابزار نامعتبر بود."
 
-            log.info("tool call: %s", tool_name)
+            log.info("tool call: %s profile=%s", tool_name, self.tool_profile)
             with session_context(self.session):
-                output = run_tool(tool_name, args)
+                output = run_tool(tool_name, args, profile=self.tool_profile)
             messages.append({"role": "assistant", "content": content})
             messages.append(
                 {
