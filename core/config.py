@@ -25,12 +25,12 @@ def _int(value: str | None, default: int) -> int:
 @dataclass
 class Config:
     default_model: str = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash").strip()
-    nara_key: str = os.getenv("NARA_API_KEY", "")
+    nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
-    api_token: str = os.getenv("API_TOKEN", "")
+    api_token: str = os.getenv("API_TOKEN", "").strip()
     api_host: str = os.getenv("API_HOST", "127.0.0.1").strip()
     api_port: int = _int(os.getenv("API_PORT"), 8765)
-    data_dir: str = os.getenv("MYCHATBOT_DATA", os.path.expanduser("~/.mychatbot"))
+    data_dir: str = os.path.expanduser(os.getenv("MYCHATBOT_DATA", "~/.mychatbot").strip())
     trust_proxy: bool = _bool(os.getenv("TRUST_PROXY"), False)
     telegram_require_allowlist: bool = _bool(os.getenv("TELEGRAM_REQUIRE_ALLOWLIST"), False)
     max_input_chars: int = _int(os.getenv("MAX_INPUT_CHARS"), 12000)
@@ -39,7 +39,9 @@ class Config:
     memory_context_facts: int = _int(os.getenv("MEMORY_CONTEXT_FACTS"), 12)
 
     def __post_init__(self) -> None:
-        if not 1 <= self.api_port <= 65535:
+        if 1 <= self.api_port <= 65535:
+            pass
+        else:
             raise ValueError("API_PORT must be between 1 and 65535")
         self.max_input_chars = max(1000, min(self.max_input_chars, 50000))
         self.recent_history_messages = max(2, min(self.recent_history_messages, 30))
