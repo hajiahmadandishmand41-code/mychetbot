@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import httpx
 
+from core.config import config
 from core.agent import Agent
 from core.logger import get_logger
 
@@ -49,7 +50,13 @@ async def _request(client: httpx.AsyncClient, method: str, **kwargs) -> dict:
             last_error = exc
             if attempt >= len(RETRY_DELAYS):
                 break
-            await asyncio.sleep(RETRY_DELAYS[attempt])
+            delay = RETRY_DELAYS[attempt]
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                try:
+                    delay = max(delay, int(exc.response.headers.get("Retry-After", delay)))
+                except (TypeError, ValueError):
+                    pass
+            await asyncio.sleep(delay)
     raise RuntimeError("Telegram request failed after retries") from last_error
 
 
@@ -66,7 +73,7 @@ def _get_agent(agents: dict[int, Agent], chat_id: int) -> Agent:
         oldest_chat_id = next(iter(agents))
         evicted = agents.pop(oldest_chat_id)
         evicted.memory.close()
-    agent = Agent(session=f"tg:{chat_id}")
+    agent = Agent(session=f"tg:{chat_id}", tool_profile=config.tool_profile)
     agents[chat_id] = agent
     return agent
 
@@ -76,6 +83,9 @@ async def main() -> None:
         raise SystemExit("TELEGRAM_BOT_TOKEN تنظیم نشده است")
 
     allowed = _allowed_chat_ids()
+    if config.telegram_require_allowlist and not allowed:
+        raise SystemExit("TELEGRAM_ALLOWED_CHAT_IDS must be configured in production")
+
     agents: dict[int, Agent] = {}
     locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     offset = 0
@@ -104,12 +114,6 @@ async def main() -> None:
                         chat_id = int(chat)
 
                         if allowed and chat_id not in allowed:
-                            await _request(
-                                client,
-                                "POST",
-                                endpoint="sendMessage",
-                                json={"chat_id": chat_id, "text": "دسترسی این ربات برای این chat فعال نیست."},
-                            )
                             offset = max(offset, update_id + 1)
                             continue
 
@@ -128,7 +132,7 @@ async def main() -> None:
                             try:
                                 reply = await agent.ask(text)
                             except Exception:  # noqa: BLE001
-                                log.exception("message processing failed for chat %s", chat_id)
+                                log.exception("message processing failed")
                                 reply = "در پردازش درخواست مشکلی رخ داد. دوباره تلاش کنید."
 
                         for chunk in _chunks(reply):
