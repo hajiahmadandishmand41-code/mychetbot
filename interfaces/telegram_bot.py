@@ -6,8 +6,8 @@ from collections import defaultdict
 
 import httpx
 
-from core.config import config
 from core.agent import Agent
+from core.config import config
 from core.logger import get_logger
 
 log = get_logger("telegram")
