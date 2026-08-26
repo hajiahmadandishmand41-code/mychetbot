@@ -24,8 +24,8 @@ def _int(value: str | None, default: int) -> int:
 
 @dataclass
 class Config:
-    default_provider: str = os.getenv("DEFAULT_PROVIDER", "ollama")
-    default_model: str = os.getenv("DEFAULT_MODEL", "llama3.2:1b")
+    default_provider: str = os.getenv("DEFAULT_PROVIDER", "openrouter")
+    default_model: str = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
     openai_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     gemini_key: str = os.getenv("GEMINI_API_KEY", "")
@@ -34,7 +34,7 @@ class Config:
     allow_shell: bool = _bool(os.getenv("ALLOW_SHELL"), False)
     shell_whitelist: list[str] = field(default_factory=lambda: [
         item.strip().split()[0]
-        for item in os.getenv("SHELL_WHITELIST", "ls,pwd,whoami,df,uname").split(",")
+        for item in os.getenv("SHELL_WHITELIST", "ls,pwd,whoami,df,uname,ping,curl").split(",")
         if item.strip()
     ])
     api_token: str = os.getenv("API_TOKEN", "")
