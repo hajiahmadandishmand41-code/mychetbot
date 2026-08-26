@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 from core.config import config
 from core.logger import get_logger
@@ -14,8 +15,6 @@ SYSTEM_PROMPT = """تو MyChatBot هستی؛ یک دستیار هوشمند گف
 
 قواعد اصلی:
 - هویت تو فقط MyChatBot است. نام مدل، Provider، Router یا زیرساخت را به‌عنوان هویت خود مطرح نکن.
-- اگر درباره هویتت پرسیدند، بگو: «من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی که برای پاسخ‌گویی حرفه‌ای، حفظ Context و استفاده از حافظه طراحی شده‌ام.»
-- اگر درباره سازنده، خالق یا توسعه‌دهنده پرسیدند، بگو: «سازنده MyChatBot حاجی احمد صالحی است.»
 - زبان و لحن کاربر را تشخیص بده و همان سبک را با لحن طبیعی و حرفه‌ای دنبال کن؛ فارسی را عالی پشتیبانی کن.
 - برای سؤال ساده، مستقیم و کوتاه پاسخ بده. برای موضوع پیچیده، ساختاریافته و عمیق پاسخ بده.
 - Context و حافظه ذخیره‌شده را فقط وقتی مرتبط است به کار ببر. هرگز چیزی را که در حافظه نیست حدس نزن.
@@ -41,6 +40,8 @@ _PREFERENCE_PATTERNS = (
 )
 _EXPLICIT_REMEMBER = re.compile(r"(?:یادت باشد|یادت باشه|به خاطر بسپار|به خاطر داشته باش|remember this|remember)\s*[:：]?\s*(.+)$", re.I)
 _FORGET = re.compile(r"(?:فراموش کن|یادت نباشه|پاک کن|forget)\s+(.+)$", re.I)
+_IDENTITY = re.compile(r"(?:تو\s+)?(?:چه\s+مدلی|چه\s+ai|کدام\s+مدل|کدوم\s+مدل|از\s+چه\s+مدلی|چه\s+هوش|چه\s+سیستمی)|(?:deepseek|chatgpt|claude|gemini|gpt|nara)\s*(?:هستی|استی|ی|هستید|هستی؟|ی؟)", re.I)
+_CREATOR = re.compile(r"(?:سازنده|خالق|توسعه\s*دهنده|developer|creator|who\s+made)\b", re.I)
 
 
 def _clean_fact(value: str) -> str:
@@ -61,7 +62,7 @@ class Agent:
         text = user_input.strip()
         explicit = _EXPLICIT_REMEMBER.search(text)
         if explicit:
-            self.memory.remember("explicit_note", _clean_fact(explicit.group(1)), self.session)
+            self.memory.remember(f"note:{int(time.time() * 1000)}", _clean_fact(explicit.group(1)), self.session)
 
         for pattern in _NAME_PATTERNS:
             match = pattern.search(text)
@@ -75,6 +76,13 @@ class Agent:
             match = pattern.search(text)
             if match:
                 self.memory.remember(key, _clean_fact(match.group(1)), self.session)
+
+    def _identity_response(self, text: str) -> str | None:
+        if _CREATOR.search(text):
+            return "سازنده MyChatBot حاجی احمد صالحی است."
+        if _IDENTITY.search(text):
+            return "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی که برای پاسخ‌گویی حرفه‌ای، حفظ Context و استفاده از حافظه طراحی شده‌ام."
+        return None
 
     def _forget_from_message(self, user_input: str) -> bool:
         match = _FORGET.search(user_input.strip())
@@ -118,13 +126,19 @@ class Agent:
         if len(text) > config.max_input_chars:
             raise ValueError("user_input is too long")
 
+        self._remember_from_message(text)
+        identity = self._identity_response(text)
+        if identity is not None:
+            self.memory.add(self.session, "user", text)
+            self.memory.add(self.session, "assistant", identity)
+            return identity
+
         if self._forget_from_message(text):
             self.memory.add(self.session, "user", text)
             reply = "انجام شد. اطلاعات موردنظر از حافظه پاک شد."
             self.memory.add(self.session, "assistant", reply)
             return reply
 
-        self._remember_from_message(text)
         self.memory.add(self.session, "user", text)
         messages = [self._system(text)] + self.memory.recent_history(self.session, limit=config.recent_history_messages)
 
