@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 import json
 import os
 import shutil
 import socket
 import subprocess
-from typing import Any
 
 
 BLOCKED_OPERATIONS = [

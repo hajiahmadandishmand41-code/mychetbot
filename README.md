@@ -1,71 +1,28 @@
-# MyChatBot
+# MyChatBot — Personal AI Assistant for Android + Termux
 
-MyChatBot is a modular Python assistant that supports two intentionally separated runtimes:
-
-1. **Android + Termux** for device capabilities such as Wi-Fi, battery, notifications, clipboard and location.
-2. **Docker + Linux VPS** for the FastAPI service, AI providers, persistent memory and HTTPS deployment.
-
-The same repository supports both without making the VPS container depend on Android, Termux, phone root or Android permissions.
+MyChatBot یک دستیار ماژولار Python با رابط CLI، FastAPI و اتصال Android/Termux است. تمرکز پروژه روی اجرای واقعی، خطاهای قابل فهم، session isolation و محدودیت‌های واقعی هر محیط است.
 
 ## Architecture
 
 ```text
-GitHub
-  |
-  | push main
-  v
-GitHub Actions
-  |
-  +--> CI: Python 3.10 / 3.13 / 3.14 + pytest
-  |
-  +--> Docker build + /health verification
-          |
-          +--> GHCR immutable image: <commit-sha>
-                    |
-                    | SSH deploy
-                    v
-             Linux VPS / Docker Compose
-                    |
-                    +--> mychatbot API (internal :8765)
-                    +--> persistent ./data bind mount
-                    +--> Caddy (80/443, automatic HTTPS)
-                    +--> health-gated rollback
-
-Android / Termux
-  |
-  +--> CLI / local API
-  +--> TermuxBridge
-  +--> Wi-Fi / battery / notification / clipboard / location
-```
-
-### Repository layout
-
-```text
-core/        config, logger, memory, security, router, agent
-providers/   OpenAI, Anthropic, Gemini, OpenRouter, Ollama
-tools/       shell, files, network, wifi, termux, http, notes
-interfaces/  CLI, FastAPI, Telegram
-termux/      Termux installers and launchers
-android/     Kotlin bridge, Wi-Fi scanner, notifications
+core/       config, logger, memory, security, router, agent
+providers/  OpenAI, Anthropic, Gemini, OpenRouter, Ollama
+ tools/     shell, files, network, wifi, termux, http, notes
+interfaces/ CLI, FastAPI, Telegram
+termux/     install/start/API/bridge launchers
+android/    Kotlin Termux bridge, Wi-Fi scanner, notifications
 flutter_app/ mobile client
-tests/       pytest tests
-docs/        architecture, security, roadmap and reports
-deploy/      VPS deployment script, Caddy configuration and VPS docs
+ tests/     pytest unit/integration-ready tests
+docs/       architecture, security, roadmap, report
+Dockerfile  non-root API image
+docker-compose.yml  hardened local/VPS API service
 ```
 
 ## Requirements
 
-Python 3.10+ is supported. CI checks Python 3.10, 3.13 and 3.14.
+Python 3.10+ is supported. CI validates Python 3.10, 3.13 and 3.14. Android functionality requires an Android build environment; Termux functionality requires Termux and, for `wifi_*`/battery/notification tools, Termux:API and its Android permissions.
 
-For Android/Termux functionality, use a real Android device with Termux and Termux:API. Root is never assumed or fabricated.
-
-For VPS production deployment, use a supported Ubuntu/Debian Linux VPS with Docker Engine and the Docker Compose plugin.
-
-Official Docker installation references:
-- https://docs.docker.com/engine/install/
-- https://docs.docker.com/compose/install/linux/
-
-## Local Development
+## Linux installation
 
 ```bash
 python -m venv .venv
@@ -74,7 +31,27 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Configure only the provider credentials you actually use. No API key or token is required just to start the application and answer `/health`.
+Set `API_TOKEN` for protected API access. Never commit `.env`, API keys, Telegram tokens or the generated master key.
+
+## Termux installation
+
+From the repository root:
+
+```bash
+bash termux/install.sh
+```
+
+Then configure `.env` and run:
+
+```bash
+bash termux/start.sh
+```
+
+API server:
+
+```bash
+bash termux/start_api.sh
+```
 
 ## CLI
 
@@ -83,354 +60,93 @@ python -m interfaces.cli
 python -m mychatbot
 ```
 
-The CLI uses the local/device capability profile. On Termux, the existing environment detection selects the `device` profile automatically.
+The CLI can start without an external AI key, but actual AI responses require a configured provider or a reachable local Ollama instance.
 
 ## API
 
-Run locally with:
+```bash
+uvicorn interfaces.api_server:app --host 127.0.0.1 --port 8765
+```
+
+`/health` is intentionally public for health checks. `/tools`, `/chat` and `/history/*` require `Authorization: Bearer <API_TOKEN>`. The API validates session identifiers, enforces an in-process request rate limit and bounds the number of cached Agent sessions.
+
+## Telegram
+
+Set `TELEGRAM_BOT_TOKEN`. Optionally set `TELEGRAM_ALLOWED_CHAT_IDS` to a comma-separated allow-list. The bot uses long polling with timeouts/retries, per-chat locks, per-chat Agent sessions and Telegram message-size handling.
 
 ```bash
-python -m uvicorn interfaces.api_server:app --host 127.0.0.1 --port 8765
-```
-
-The application listens on `0.0.0.0` inside Docker; the host does not publish port 8765 in the production Compose stack.
-
-### Health and readiness
-
-```text
-GET /health  -> liveness, always independent of AI provider availability
-GET /ready   -> readiness, verifies the data directory and reports configured providers
-```
-
-`/health` is intentionally public so Docker and external monitors can verify the process. Protected endpoints require:
-
-```http
-Authorization: Bearer <API_TOKEN>
+bash termux/start_telegram.sh
 ```
 
 ## Providers
 
-The repository currently contains:
+Supported implementations currently present in the repository:
 
+- Ollama
 - OpenRouter
 - OpenAI
 - Anthropic
 - Gemini
-- Ollama
 
-The Router only considers configured providers and normalizes timeout, credential, rate-limit, connection and invalid-request failures.
+The Router uses only configured providers and normalizes timeout, authentication, rate-limit, connection and invalid-request failures before fallback.
 
-## Tool capability profiles
+## Tools and security
 
-The registry now distinguishes runtime capabilities:
+Shell execution is disabled by default, uses a command whitelist, rejects shell chaining/redirection and runs with `shell=False`. The HTTP tool validates DNS-resolved destinations, blocks private/loopback/link-local/metadata networks, disables automatic redirects and limits response size.
 
-| Profile | Intended runtime | Public API tools |
-|---|---|---|
-| `local` | Linux development / CLI | local shell, files, network, HTTP, notes |
-| `device` | Termux / Android | local tools + Termux/Wi-Fi/device tools |
-| `server` | Docker / VPS API | notes/memory tools only |
+## Legal Wi-Fi Security Audit
 
-The FastAPI API uses `API_TOOL_PROFILE=server` by default. Docker also sets `TOOL_PROFILE=server`.
+The Wi-Fi feature is intentionally limited to lawful, read-only / OS-managed audit functions:
 
-This prevents Android/Termux commands, Wi-Fi scanning, shell execution, arbitrary file access and similar privileged capabilities from becoming public VPS endpoints.
+- capability detection and environment limitations
+- Wi-Fi scan results exposed by Android/Termux
+- security/encryption classification
+- WPS advertised status when exposed by the OS
+- signal strength and radio/channel information
+- network diagnostics (route, DNS and Internet reachability)
+- security report with remediation guidance
 
-When a tool is not supported by the current runtime, the tool registry returns a structured `capability_unavailable` result instead of faking the operation.
+The project does **not** implement password guessing/cracking, handshake/PMKID capture, WPS PIN attacks, deauthentication, packet injection, privilege/root bypass, authentication bypass or CAPTCHA bypass.
 
-## Android / Termux
+Android/Termux restrictions are real: missing Wi-Fi/location permissions, disabled location services, API throttling and missing Termux:API can make scan data unavailable. The code reports `unavailable`/`unknown` instead of fabricating results. No VPS/Vercel deployment is allowed to claim access to the phone's Wi-Fi radio; Wi-Fi audit requires the Android/Termux device-side components.
 
-Existing Termux launchers remain available:
+## Android ↔ Termux bridge
 
-```bash
-bash termux/install.sh
-bash termux/start.sh
-bash termux/start_api.sh
-```
+The Android bridge only supports the approved application/bridge paths already present in the repository. Wi-Fi scanning uses Android's official Wi-Fi APIs; no monitor mode or packet injection is required or attempted.
 
-The Android bridge only launches the approved CLI/API bridge modes. Wi-Fi scanning checks Android permission and Wi-Fi state. BSSIDs are masked in public-facing output.
+## Docker / VPS
 
-## Wi-Fi
-
-`wifi_info` and `wifi_scan` use Termux:API on a real Android/Termux device. They are not used by the Docker/VPS runtime.
-
-Low-level monitor mode, root-only operations and kernel-specific Wi-Fi functionality are not emulated. The application reports unavailable capabilities instead.
-
-## Docker
-
-### Build the production image
+Build and run the API container:
 
 ```bash
-docker build -t mychatbot:local .
+docker compose up -d --build
 ```
 
-The image uses Python 3.13.15 slim-bookworm, installs the runtime-only dependency set, runs as UID/GID 10001, and stores persistent application data under `/data`.
+The image runs as a non-root user. Compose enables `no-new-privileges`, drops Linux capabilities and keeps the data directory on a named volume. Bind the service to localhost and put it behind a reverse proxy/VPN/firewall when exposing it from a VPS.
 
-No `.env`, `.git`, virtualenv, Android sources, Termux sources or test caches are copied into the image.
+Docker/VPS can run the Python API and AI providers, but cannot access the Android device's Wi-Fi interface merely because the chatbot is remote.
 
-### Run the container
+## Vercel
+
+Vercel can host a web/API workload, but this repository's Android/Termux Wi-Fi capabilities are device-local and must not be proxied as if they were available on Vercel. Deploy the API remotely only when the requested functionality does not depend on the phone's Wi-Fi/Termux environment.
+
+## Tests and CI
 
 ```bash
-docker run --rm \
-  -p 127.0.0.1:8765:8765 \
-  -e API_TOKEN='replace-me' \
-  -e OPENROUTER_API_KEY='replace-me' \
-  -e TOOL_PROFILE=server \
-  -e MYCHATBOT_DATA=/data \
-  mychatbot:local
-```
-
-Health check:
-
-```bash
-curl -fsS http://127.0.0.1:8765/health
-```
-
-## Docker Compose
-
-Production Compose is in `compose.yaml`.
-
-It provides:
-
-- `mychatbot` API container
-- persistent `./data:/data` storage
-- Caddy reverse proxy
-- automatic restart
-- container health checks
-- non-root application execution
-- no published API port
-
-Start locally with a local image:
-
-```bash
-MYCHATBOT_IMAGE=mychatbot:local MYCHATBOT_DOMAIN=localhost docker compose up -d
-```
-
-Logs:
-
-```bash
-docker compose logs -f mychatbot
-docker compose logs -f caddy
-```
-
-Stop:
-
-```bash
-docker compose down
-```
-
-The application data remains in `./data`.
-
-## VPS Deployment
-
-The production stack uses:
-
-```text
-GitHub -> CI -> Docker build -> GHCR -> SSH -> VPS -> Docker Compose -> Caddy -> MyChatBot
-```
-
-The VPS does not need the source repository. It stores:
-
-```text
-/opt/mychatbot/
-├── .env.production
-├── .current_image
-├── compose.yaml
-├── data/
-└── deploy/
-    ├── Caddyfile
-    └── deploy.sh
-```
-
-See `deploy/README.md` for the complete Ubuntu/Debian bootstrap procedure, firewall setup, GHCR authentication, DNS and HTTPS configuration.
-
-### Required GitHub production environment secrets
-
-Create a GitHub environment named `production` and configure:
-
-```text
-VPS_HOST
-VPS_PORT              # optional, defaults to 22
-VPS_USER
-VPS_SSH_PRIVATE_KEY
-VPS_KNOWN_HOSTS
-VPS_DEPLOY_PATH       # e.g. /opt/mychatbot
-```
-
-The workflow also uses GitHub's built-in `GITHUB_TOKEN` for GHCR authentication. No GHCR password is committed to the repository.
-
-GitHub environment secrets are only available to jobs referencing that environment. You can also require manual approval for the production environment. See:
-- https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments
-
-### VPS runtime environment
-
-Create `/opt/mychatbot/.env.production` from `deploy/.env.production.example`.
-
-Required or commonly used values:
-
-```text
-MYCHATBOT_DOMAIN
-API_TOKEN
-OPENROUTER_API_KEY or another selected provider key
-MYCHATBOT_MASTER_KEY (optional but recommended for explicit key management)
-PUBLIC_HEALTH_URL (optional)
-```
-
-Never put `.env.production` into Git.
-
-## GitHub Actions
-
-### CI
-
-`.github/workflows/python-ci.yml` runs on pull requests and pushes to `main`.
-
-It performs:
-
-- Python 3.10/3.13/3.14 dependency installation
-- syntax checks
-- import checks
-- shell syntax checks
-- pytest
-
-### Docker verification
-
-`.github/workflows/docker.yml` builds the Docker image on pull requests, validates Compose, starts the container and waits for a real HTTP `/health` response.
-
-### Production deployment
-
-`.github/workflows/deploy.yml` is triggered after a successful CI run for `main` (and can also be run manually).
-
-It performs:
-
-1. checkout of the exact successful commit SHA
-2. Docker build
-3. real container startup and `/health` verification
-4. GHCR publication with immutable commit-SHA tag plus `main`
-5. SSH host-key verification
-6. upload of Compose/deployment manifests to the VPS
-7. deployment of that exact image SHA
-8. health-gated success
-9. automatic rollback to the previous known-good image if health fails
-
-A superseded commit is skipped if a newer commit is already on `main` when the deployment workflow starts.
-
-## HTTPS
-
-Caddy is used for the production reverse proxy.
-
-Set a real DNS name in:
-
-```text
-MYCHATBOT_DOMAIN=your-real-domain.example
-```
-
-Point the DNS record to the VPS public IP and allow TCP ports 80 and 443. Caddy will manage the TLS certificate automatically.
-
-The application port 8765 stays private inside the Compose network.
-
-## Health Checks
-
-Container liveness:
-
-```bash
-curl -fsS http://127.0.0.1:8765/health
-```
-
-Readiness:
-
-```bash
-curl -fsS http://127.0.0.1:8765/ready
-```
-
-Public health, after DNS/HTTPS is configured:
-
-```bash
-curl -fsS https://your-real-domain.example/health
-```
-
-## Rollback
-
-The deployment script stores the last successful image in `.current_image` and never removes the previous image as part of normal deployment.
-
-Automatic rollback occurs when the candidate image fails its health gate.
-
-Manual rollback:
-
-```bash
-cd /opt/mychatbot
-PREVIOUS_IMAGE="$(head -n 1 .current_image)"
-DEPLOY_DIR=/opt/mychatbot IMAGE_REF="$PREVIOUS_IMAGE" ./deploy/deploy.sh
-```
-
-## Environment Variables
-
-The complete development template is `.env.example`.
-
-The complete VPS template is `deploy/.env.production.example`.
-
-Supported provider variables are only required for the provider selected by the Router. Unconfigured providers are skipped by fallback selection.
-
-## Persistent Storage
-
-The application stores its SQLite memory database and generated master key under `MYCHATBOT_DATA`.
-
-Docker maps that path to `/data`, backed by the persistent VPS directory `/opt/mychatbot/data`.
-
-Do not delete this directory unless you intentionally want to remove application memory and the generated master key.
-
-## Security
-
-- no secrets in images or Git
-- no `.env` files committed
-- production API uses `API_TOOL_PROFILE=server`
-- shell execution remains disabled by default
-- Docker application runs as non-root UID/GID 10001
-- container drops Linux capabilities and enables `no-new-privileges`
-- API port is not publicly published in Compose
-- Caddy is the only public application entry point
-- logs use redaction helpers for sensitive values
-- Android/Termux capabilities are never faked on VPS
-- SSH host keys are verified by `VPS_KNOWN_HOSTS`
-
-## Testing
-
-Run locally:
-
-```bash
-python -m pip install -r requirements.txt
 pytest -q
+python -m compileall -q core providers tools interfaces mychatbot
 ```
 
-Build and start Docker:
-
-```bash
-docker build -t mychatbot:local .
-docker run -d --name mychatbot-local -p 127.0.0.1:8765:8765 -e TOOL_PROFILE=server -e MYCHATBOT_DATA=/data mychatbot:local
-curl -fsS http://127.0.0.1:8765/health
-docker rm -f mychatbot-local
-```
-
-On a real Android device, also validate Termux API and Android permissions. Those checks cannot be honestly substituted by a Linux CI runner.
+GitHub Actions runs the Python suite on Python 3.10, 3.13 and 3.14. Android/Termux runtime behavior remains device-dependent and should be validated on a real Android device with the required permissions.
 
 ## Troubleshooting
 
-**`API provider is not configured`** — configure one supported provider or make a local Ollama server available.
+**`API provider is not configured`** — configure at least one provider or run Ollama locally.
 
-**`API_TOKEN is not configured`** — protected API endpoints intentionally return HTTP 503 until you configure an API token.
+**`TELEGRAM_BOT_TOKEN تنظیم نشده است`** — set the token in `.env`; for production, also consider `TELEGRAM_ALLOWED_CHAT_IDS`.
 
-**`capability_unavailable`** — the requested tool belongs to Android/Termux/local-only capabilities and the current runtime is the VPS `server` profile.
+**`Termux API unavailable`** — install the Termux:API Android application and `pkg install termux-api` in Termux.
 
-**Container is unhealthy** — inspect:
+**Wi-Fi scan unavailable** — enable Wi-Fi, grant the relevant Android Wi-Fi/location permissions, enable location services when required by Android, and ensure Termux:API is installed for the Termux path.
 
-```bash
-docker compose logs --tail=200 mychatbot
-docker inspect mychatbot --format '{{json .State.Health}}'
-```
-
-**HTTPS does not issue a certificate** — verify DNS points to the VPS and TCP 80/443 are reachable.
-
-**Deployment failed** — inspect the deployment workflow logs. The VPS script should restore the previous known-good image after a failed health gate.
-
-## Dependency Policy
-
-Runtime dependencies are pinned in `requirements-prod.txt` and `pyproject.toml`. Test dependencies remain in `requirements.txt`.
-
-The production image uses Python 3.13.15 slim-bookworm and installs only the runtime set. No Rust toolchain is placed in the final image.
+**`cryptography` installation fails in Termux** — re-run `bash termux/install.sh` so the native build prerequisites are installed when a compatible wheel is unavailable.
