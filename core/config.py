@@ -39,9 +39,7 @@ class Config:
     memory_context_facts: int = _int(os.getenv("MEMORY_CONTEXT_FACTS"), 12)
 
     def __post_init__(self) -> None:
-        if 1 <= self.api_port <= 65535:
-            pass
-        else:
+        if not 1 <= self.api_port <= 65535:
             raise ValueError("API_PORT must be between 1 and 65535")
         self.max_input_chars = max(1000, min(self.max_input_chars, 50000))
         self.recent_history_messages = max(2, min(self.recent_history_messages, 30))
