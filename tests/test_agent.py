@@ -66,10 +66,8 @@ async def test_remember_language_preference(monkeypatch, isolated_memory):
 @pytest.mark.asyncio
 async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_memory):
     a = Agent(session="identity")
-    captured = []
 
     async def fake(messages, **kw):
-        captured.extend(messages)
         return {"content": "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی هستم."}
 
     monkeypatch.setattr(a.router, "complete", fake)
@@ -81,6 +79,7 @@ async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_m
 
 @pytest.mark.asyncio
 async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch, isolated_memory):
+    monkeypatch.setattr(config, "tool_profile", "device")
     a = Agent(session="tool-user")
     calls = []
 
@@ -93,6 +92,7 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
     def fake_tool(name, args, profile="local"):
         assert name == "wifi_info"
         assert args == {}
+        assert profile == "device"
         return '{"status":"ok","ssid":"TestWiFi","security":"WPA2"}'
 
     monkeypatch.setattr(a.router, "complete", fake)
