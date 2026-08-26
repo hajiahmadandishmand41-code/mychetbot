@@ -1,12 +1,18 @@
 name: Docker Build Verification
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   docker:
@@ -37,6 +43,7 @@ jobs:
         run: |
           docker run -d --name mychatbot-ci \
             -e TOOL_PROFILE=server \
+            -e API_TOOL_PROFILE=server \
             -e MYCHATBOT_DATA=/data \
             -p 127.0.0.1:8765:8765 \
             mychatbot:ci
