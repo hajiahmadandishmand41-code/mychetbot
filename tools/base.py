@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -47,10 +48,23 @@ class Tool:
     def run(self, args: dict) -> str:
         if not isinstance(args, dict):
             return "[arg-error] tool arguments must be an object"
-        required = set(self.args)
-        unknown = set(args) - required
+        declared = set(self.args)
+        unknown = set(args) - declared
         if unknown:
             return f"[arg-error] unsupported arguments: {sorted(unknown)}"
+        try:
+            signature = inspect.signature(self.func)
+            required = {
+                name
+                for name, parameter in signature.parameters.items()
+                if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+                and parameter.default is inspect.Parameter.empty
+            }
+        except (TypeError, ValueError):
+            required = declared
+        missing = required - set(args)
+        if missing:
+            return f"[arg-error] missing arguments: {sorted(missing)}"
         try:
             return str(self.func(**args))
         except TypeError as exc:
