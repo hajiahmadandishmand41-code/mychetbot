@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 
 from interfaces.api_server import app
 
-
 client = TestClient(app)
 
 
@@ -33,8 +32,8 @@ def test_history_and_memory_delete_are_protected(monkeypatch):
 
 
 def test_api_session_is_bound_to_auth_principal(monkeypatch):
-    from interfaces import api_server
     from core.config import config
+    from interfaces import api_server
 
     monkeypatch.setattr(config, "api_token", "token-a")
     assert api_server._owned_session("shared", "token-a") != api_server._owned_session("shared", "token-b")
