@@ -27,7 +27,7 @@ async def test_agent_plain_reply(monkeypatch, isolated_memory):
 
     monkeypatch.setattr(a.router, "complete", fake)
     assert await a.ask("سلام") == "پاسخ تستی"
-    assert calls == 2  # planner + final response; planner output is intentionally ignored as a tool choice
+    assert calls == 2
     assert a.memory.history("t")[-1].content == "پاسخ تستی"
     a.memory.close()
 
@@ -51,12 +51,23 @@ async def test_automatic_name_memory_and_recall(monkeypatch, isolated_memory):
 
 
 @pytest.mark.asyncio
-async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_memory):
-    a = Agent(session="identity")
-    captured = []
+async def test_remember_language_preference(monkeypatch, isolated_memory):
+    a = Agent(session="language-user")
 
     async def fake(messages, **kw):
-        captured.extend(messages)
+        return {"content": "حتماً."}
+
+    monkeypatch.setattr(a.router, "complete", fake)
+    await a.ask("یادت باشه من فارسی صحبت می‌کنم")
+    assert a.memory.recall("language_preference", "language-user") is not None
+    a.memory.close()
+
+
+@pytest.mark.asyncio
+async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_memory):
+    a = Agent(session="identity")
+
+    async def fake(messages, **kw):
         return {"content": "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی هستم."}
 
     monkeypatch.setattr(a.router, "complete", fake)
@@ -68,6 +79,7 @@ async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_m
 
 @pytest.mark.asyncio
 async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch, isolated_memory):
+    monkeypatch.setattr(config, "tool_profile", "device")
     a = Agent(session="tool-user")
     calls = []
 
@@ -80,6 +92,7 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
     def fake_tool(name, args, profile="local"):
         assert name == "wifi_info"
         assert args == {}
+        assert profile == "device"
         return '{"status":"ok","ssid":"TestWiFi","security":"WPA2"}'
 
     monkeypatch.setattr(a.router, "complete", fake)
@@ -107,7 +120,6 @@ async def test_disallowed_tool_choice_is_not_executed(monkeypatch, isolated_memo
 
     monkeypatch.setattr(a.router, "complete", fake)
     monkeypatch.setattr("core.agent.run_tool", fake_tool)
-    # Both planner and final response return the malicious-looking JSON; it must remain plain text.
     answer = await a.ask("این را اجرا کن")
     assert not executed
     assert answer.startswith('{"tool"')

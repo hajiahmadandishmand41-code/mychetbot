@@ -6,9 +6,11 @@ from providers.base import BaseProvider
 
 class NaraProvider(BaseProvider):
     name = "nara"
-    default_model = "deepseek-v4-flash"
 
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
+        selected_model = (model or config.default_model).strip()
+        if not selected_model:
+            raise ValueError("DEFAULT_MODEL is not configured")
         headers = {
             "Authorization": f"Bearer {config.nara_key}",
             "Content-Type": "application/json",
@@ -17,7 +19,7 @@ class NaraProvider(BaseProvider):
             f"{config.nara_base_url}/chat/completions",
             headers,
             {
-                "model": model or self.default_model,
+                "model": selected_model,
                 "messages": messages,
                 "temperature": kw.get("temperature", 0.4),
             },

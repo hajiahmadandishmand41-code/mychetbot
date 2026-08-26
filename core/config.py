@@ -30,9 +30,23 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 
 @dataclass
 class Config:
-    default_model: str = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash").strip()
+    # Provider/model selection is environment-only: no model is baked into source.
+    default_model: str = os.getenv("DEFAULT_MODEL", "").strip()
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
+
+    # Legacy provider configuration is retained for module compatibility; Router enables Nara only.
+    openai_key: str = os.getenv("OPENAI_API_KEY", "").strip()
+    openrouter_key: str = os.getenv("OPENROUTER_API_KEY", "").strip()
+    anthropic_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    gemini_key: str = os.getenv("GEMINI_API_KEY", "").strip()
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    openai_model: str = os.getenv("OPENAI_MODEL", "").strip()
+    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "").strip()
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "").strip()
+    gemini_model: str = os.getenv("GEMINI_MODEL", "").strip()
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "").strip()
+
     api_token: str = os.getenv("API_TOKEN", "").strip()
     api_host: str = os.getenv("API_HOST", "127.0.0.1").strip()
     api_port: int = _int(os.getenv("API_PORT"), 8765)
@@ -43,10 +57,13 @@ class Config:
     recent_history_messages: int = _int(os.getenv("RECENT_HISTORY_MESSAGES"), 12)
     memory_context_messages: int = _int(os.getenv("MEMORY_CONTEXT_MESSAGES"), 8)
     memory_context_facts: int = _int(os.getenv("MEMORY_CONTEXT_FACTS"), 12)
-    # Shell is opt-in and remains separately guarded by a whitelist.
+    memory_max_messages: int = _int(os.getenv("MEMORY_MAX_MESSAGES"), 1000)
+    memory_max_facts: int = _int(os.getenv("MEMORY_MAX_FACTS"), 100)
+    memory_max_message_chars: int = _int(os.getenv("MEMORY_MAX_MESSAGE_CHARS"), 12000)
+    rate_limit_requests: int = _int(os.getenv("RATE_LIMIT_REQUESTS"), 30)
+    rate_limit_window_seconds: int = _int(os.getenv("RATE_LIMIT_WINDOW_SECONDS"), 60)
     allow_shell: bool = _bool(os.getenv("ALLOW_SHELL"), False)
     shell_whitelist: tuple[str, ...] = _csv(os.getenv("SHELL_WHITELIST"), ("pwd", "ls", "whoami", "uname", "date"))
-    # Only these read-only tools may be selected automatically by the conversational agent.
     auto_tools: tuple[str, ...] = _csv(
         os.getenv("AUTO_TOOLS"),
         (
@@ -63,6 +80,11 @@ class Config:
         self.recent_history_messages = max(2, min(self.recent_history_messages, 30))
         self.memory_context_messages = max(0, min(self.memory_context_messages, 20))
         self.memory_context_facts = max(0, min(self.memory_context_facts, 50))
+        self.memory_max_messages = max(100, min(self.memory_max_messages, 100_000))
+        self.memory_max_facts = max(10, min(self.memory_max_facts, 10_000))
+        self.memory_max_message_chars = max(1000, min(self.memory_max_message_chars, 50_000))
+        self.rate_limit_requests = max(1, min(self.rate_limit_requests, 10_000))
+        self.rate_limit_window_seconds = max(1, min(self.rate_limit_window_seconds, 86_400))
 
     def ensure_data_dir(self) -> None:
         Path(self.data_dir).mkdir(parents=True, exist_ok=True, mode=0o700)

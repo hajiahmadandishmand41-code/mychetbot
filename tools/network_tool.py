@@ -36,7 +36,7 @@ def ping(host: str, count: int = 3, timeout: int = 10) -> str:
 def dns_lookup(host: str) -> str:
     target = _validate_host(host)
     try:
-        addresses = sorted({item[4][0] for item in socket.getaddrinfo(target, None)})
+        addresses = sorted({str(item[4][0]) for item in socket.getaddrinfo(target, None)})
         return f"{target} -> {', '.join(addresses)}"
     except socket.gaierror as exc:
         return f"[dns-error] {exc}"

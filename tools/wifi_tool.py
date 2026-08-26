@@ -121,13 +121,8 @@ def capability_detection() -> str:
             "root": os.geteuid() == 0 if hasattr(os, "geteuid") else False,
             "root_required_for_audit": False,
             "supported": [
-                "capability detection",
-                "wifi scan",
-                "encryption/security classification",
-                "WPS advertised status",
-                "signal strength",
-                "network diagnostics",
-                "security report",
+                "capability detection", "wifi scan", "encryption/security classification",
+                "WPS advertised status", "signal strength", "network diagnostics", "security report",
             ],
             "unsupported_or_intentionally_blocked": BLOCKED_OPERATIONS,
             "limitations": [
@@ -144,11 +139,7 @@ def wifi_scan() -> str:
     ok, payload, error = _termux_json("termux-wifi-scaninfo")
     if not ok:
         return json.dumps(
-            {
-                "status": "unavailable",
-                "error": error,
-                "fallback": "Install/enable Termux:API and grant its location permission; no root fallback is attempted.",
-            },
+            {"status": "unavailable", "error": error, "fallback": "Install/enable Termux:API and grant its location permission; no root fallback is attempted."},
             ensure_ascii=False,
         )
     if not isinstance(payload, list):
@@ -160,26 +151,16 @@ def wifi_scan() -> str:
             continue
         ssid = str(network.get("ssid", ""))
         bssid = _mask_bssid(str(network.get("bssid", "")))
-        try:
-            frequency = int(network.get("frequency_mhz", network.get("frequency", 0)))
-        except (TypeError, ValueError):
-            frequency = 0
-        try:
-            rssi = int(network.get("rssi", 0))
-        except (TypeError, ValueError):
-            rssi = 0
+        raw_frequency = network.get("frequency_mhz", network.get("frequency", 0))
+        frequency = int(raw_frequency) if isinstance(raw_frequency, (str, int, float)) else 0
+        raw_rssi = network.get("rssi", 0)
+        rssi = int(raw_rssi) if isinstance(raw_rssi, (str, int, float)) else 0
         capabilities = str(network.get("capabilities", ""))
         rows.append(
             {
-                "ssid": ssid,
-                "bssid": bssid,
-                "rssi_dbm": rssi,
-                "frequency_mhz": frequency,
-                "channel": _channel(frequency),
-                "band": _band(frequency),
-                "capabilities": capabilities,
-                "security": _security(capabilities),
-                "wps_status": _wps(capabilities),
+                "ssid": ssid, "bssid": bssid, "rssi_dbm": rssi,
+                "frequency_mhz": frequency, "channel": _channel(frequency), "band": _band(frequency),
+                "capabilities": capabilities, "security": _security(capabilities), "wps_status": _wps(capabilities),
             }
         )
     rows.sort(key=lambda item: item["rssi_dbm"], reverse=True)
@@ -189,10 +170,7 @@ def wifi_scan() -> str:
 def wifi_info() -> str:
     ok, data, error = _termux_json("termux-wifi-connectioninfo")
     if not ok:
-        return json.dumps(
-            {"status": "unavailable", "error": error, "hint": "Check Termux:API and Android Wi-Fi/location permissions."},
-            ensure_ascii=False,
-        )
+        return json.dumps({"status": "unavailable", "error": error, "hint": "Check Termux:API and Android Wi-Fi/location permissions."}, ensure_ascii=False)
     if not isinstance(data, dict):
         return json.dumps({"status": "error", "data": data}, ensure_ascii=False)
     if data.get("bssid"):
@@ -210,16 +188,13 @@ def network_diagnostics() -> str:
             dns_servers = [line.split()[1] for line in handle if line.startswith("nameserver ")]
     except (FileNotFoundError, PermissionError, IndexError):
         pass
-
     ping_host = "1.1.1.1"
     ping_code, _ = _run(["ping", "-c", "1", "-W", "2", ping_host], timeout=5)
-    dns_ok = False
     try:
         socket.getaddrinfo("example.com", 443, type=socket.SOCK_STREAM)
         dns_ok = True
     except OSError:
         dns_ok = False
-
     return json.dumps(
         {
             "wifi": info if info_ok else {"status": "unavailable", "error": info_error},
@@ -232,15 +207,13 @@ def network_diagnostics() -> str:
                 "Diagnostics are passive/read-only; no port scanning, packet injection, or traffic interception is performed.",
                 "A failed ICMP ping alone does not prove that Internet access is unavailable because some networks block ICMP.",
             ],
-        },
-        ensure_ascii=False,
+        }, ensure_ascii=False,
     )
 
 
 def security_report() -> str:
     info_ok, info, info_error = _termux_json("termux-wifi-connectioninfo")
     scan_ok, networks, scan_error = _termux_json("termux-wifi-scaninfo")
-
     current_ssid = str(info.get("ssid", "")) if info_ok and isinstance(info, dict) else ""
     current_bssid = _mask_bssid(str(info.get("bssid", ""))) if info_ok and isinstance(info, dict) else ""
     current = None
@@ -255,12 +228,10 @@ def security_report() -> str:
                 break
             if current is None and network_ssid == current_ssid:
                 current = network
-
     capabilities = str((current or {}).get("capabilities", ""))
     security = _security(capabilities)
     wps_status = _wps(capabilities)
     findings: list[dict[str, str]] = []
-
     if security == "WEP":
         findings.append({"severity": "critical", "finding": "WEP encryption advertised", "recommendation": "Migrate to WPA3-Personal or WPA2-AES immediately."})
     elif security in {"Open-or-Unknown", "Unknown"}:
@@ -271,29 +242,17 @@ def security_report() -> str:
         findings.append({"severity": "info", "finding": "WPA2 security advertised", "recommendation": "Prefer WPA3-Personal when supported and keep AES/CCMP enabled."})
     elif security == "WPA3-Personal":
         findings.append({"severity": "good", "finding": "WPA3-Personal advertised", "recommendation": "Keep firmware current and use a strong unique passphrase."})
-
     if "TKIP" in capabilities.upper():
         findings.append({"severity": "high", "finding": "TKIP cipher advertised", "recommendation": "Disable TKIP and use AES/CCMP-only configuration."})
-
     if wps_status == "advertised":
         findings.append({"severity": "medium", "finding": "WPS advertised by the AP", "recommendation": "Disable WPS on the router when it is not required."})
     elif wps_status == "unknown":
         findings.append({"severity": "info", "finding": "WPS status unknown", "recommendation": "Check the router configuration directly; the OS did not expose enough data to prove WPS state."})
-
     return json.dumps(
         {
-            "mode": "security_audit",
-            "current_ssid": current_ssid or "unknown",
-            "security": security,
-            "wps_status": wps_status,
-            "capabilities": capabilities,
-            "findings": findings,
+            "mode": "security_audit", "current_ssid": current_ssid or "unknown", "security": security,
+            "wps_status": wps_status, "capabilities": capabilities, "findings": findings,
             "data_quality": "direct_bssid_match" if current is not None and current_bssid else ("direct_ssid_match" if current is not None else "connection_info_only"),
-            "limitations": {
-                "wifi_scan": None if scan_ok else scan_error,
-                "wifi_connectioninfo": None if info_ok else info_error,
-                "explicitly_not_supported": BLOCKED_OPERATIONS,
-            },
-        },
-        ensure_ascii=False,
+            "limitations": {"wifi_scan": None if scan_ok else scan_error, "wifi_connectioninfo": None if info_ok else info_error, "explicitly_not_supported": BLOCKED_OPERATIONS},
+        }, ensure_ascii=False,
     )

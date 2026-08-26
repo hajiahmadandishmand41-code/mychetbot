@@ -14,9 +14,16 @@ def test_unknown_tool():
     assert "unknown_tool" in result
 
 
-def test_specs_shape():
+def test_specs_shape_and_security_metadata():
     for spec in tool_specs():
-        assert {"name", "description", "args"} <= set(spec)
+        assert {"name", "description", "input_schema", "risk_level", "permission_scope", "runtime_requirements", "timeout", "availability", "result_schema", "auto_selectable"} <= set(spec)
+    assert TOOLS["shell"].auto_selectable is False
+    assert TOOLS["write_file"].risk_level == "high"
+
+
+def test_dangerous_tools_require_confirmation():
+    result = run_tool("write_file", {"path": "README.md", "content": "do not execute"})
+    assert "permission_required" in result
 
 
 def test_files_sandbox():

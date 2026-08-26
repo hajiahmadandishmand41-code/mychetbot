@@ -14,7 +14,7 @@ from core.agent import Agent
 from core.config import config
 from core.errors import ConfigurationError, ProviderError
 from core.logger import get_logger
-from core.security import constant_time_eq, redact
+from core.security import constant_time_eq, fingerprint, redact
 from interfaces.telegram import telegram_client
 
 log = get_logger("api")
@@ -27,6 +27,11 @@ async def lifespan(_: FastAPI):
     except Exception:
         log.exception("Telegram webhook configuration failed")
     yield
+    with _agents_lock:
+        for agent in _agents.values():
+            agent.memory.close()
+        _agents.clear()
+        _agent_locks.clear()
 
 
 app = FastAPI(title="MyChatBot API", version="1.0.0", lifespan=lifespan)
@@ -60,7 +65,7 @@ class ChatIn(BaseModel):
 
 
 class RateLimiter:
-    def __init__(self, max_requests: int = 30, window_seconds: int = 60):
+    def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._hits: dict[str, deque[float]] = {}
@@ -82,17 +87,28 @@ class RateLimiter:
             return True
 
 
-_rate_limiter = RateLimiter()
+_rate_limiter = RateLimiter(config.rate_limit_requests, config.rate_limit_window_seconds)
 
 
-def _auth(authorization: str | None) -> None:
-    if not config.api_token:
-        raise HTTPException(status_code=503, detail="API_TOKEN is not configured")
+def _extract_token(authorization: str | None) -> str:
     token = (authorization or "").strip()
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
+    return token
+
+
+def _auth(authorization: str | None) -> str:
+    if not config.api_token:
+        raise HTTPException(status_code=503, detail="API_TOKEN is not configured")
+    token = _extract_token(authorization)
     if not token or not constant_time_eq(token, config.api_token):
         raise HTTPException(status_code=401, detail="unauthorized")
+    return token
+
+
+def _owned_session(session: str, token: str) -> str:
+    """Bind logical session names to the authenticated API principal."""
+    return f"api:{fingerprint(token + ':' + session)}"
 
 
 def _rate_limit_key(body: ChatIn, request: Request) -> str:
@@ -126,10 +142,23 @@ def _get_agent_lock(session: str) -> asyncio.Lock:
 def health() -> dict:
     return {
         "status": "ok",
-        "chat_provider": "nara",
         "api_auth_configured": bool(config.api_token),
         "telegram_configured": telegram_client.enabled,
     }
+
+
+@app.get("/ready")
+def ready() -> dict:
+    missing = []
+    if not config.nara_key:
+        missing.append("NARA_API_KEY")
+    if not config.default_model:
+        missing.append("DEFAULT_MODEL")
+    if not config.api_token:
+        missing.append("API_TOKEN")
+    if missing:
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "missing": missing})
+    return {"status": "ready"}
 
 
 @app.post("/telegram/webhook")
@@ -148,11 +177,12 @@ async def telegram_webhook(
 
 @app.post("/chat")
 async def chat(body: ChatIn, request: Request, authorization: str | None = Header(default=None)):
-    _auth(authorization)
+    token = _auth(authorization)
     if not _rate_limiter.allow(_rate_limit_key(body, request)):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
-    agent = _get_agent(body.session)
-    async with _get_agent_lock(body.session):
+    owned_session = _owned_session(body.session, token)
+    agent = _get_agent(owned_session)
+    async with _get_agent_lock(owned_session):
         try:
             answer = await agent.ask(body.message)
         except ConfigurationError as exc:
@@ -170,20 +200,22 @@ async def chat(body: ChatIn, request: Request, authorization: str | None = Heade
 
 @app.get("/history/{session}")
 def history(session: str, authorization: str | None = Header(default=None)):
-    _auth(authorization)
+    token = _auth(authorization)
     session = session.strip()
     if not _SESSION_RE.fullmatch(session):
         raise HTTPException(status_code=400, detail="invalid session")
-    agent = _get_agent(session)
-    return {"messages": [m.to_dict() for m in agent.memory.history(session, 50)]}
+    owned_session = _owned_session(session, token)
+    agent = _get_agent(owned_session)
+    return {"messages": [m.to_dict() for m in agent.memory.history(owned_session, 50)]}
 
 
 @app.delete("/memory/{session}")
 def clear_memory(session: str, authorization: str | None = Header(default=None)):
-    _auth(authorization)
+    token = _auth(authorization)
     session = session.strip()
     if not _SESSION_RE.fullmatch(session):
         raise HTTPException(status_code=400, detail="invalid session")
-    agent = _get_agent(session)
-    agent.memory.clear(session)
+    owned_session = _owned_session(session, token)
+    agent = _get_agent(owned_session)
+    agent.memory.clear(owned_session)
     return {"ok": True, "session": session}
