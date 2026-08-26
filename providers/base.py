@@ -28,9 +28,14 @@ class BaseProvider:
             elif status == 429:
                 code = "rate_limit"
                 message = "provider rate limit reached"
-            elif status in {404, 400}:
+            elif status == 400:
                 code = "model_or_request_invalid"
-                message = f"provider rejected the request (HTTP {status})"
+                # Keep provider diagnostics useful without exposing response bodies,
+                # credentials, headers, or upstream secrets to the chat user.
+                message = "provider rejected the request (HTTP 400); check DEFAULT_MODEL and request compatibility"
+            elif status == 404:
+                code = "endpoint_not_found"
+                message = "provider endpoint was not found"
             else:
                 code = "http_error"
                 message = f"provider returned HTTP {status}"
