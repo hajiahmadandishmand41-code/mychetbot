@@ -30,10 +30,23 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 
 @dataclass
 class Config:
-    # Provider/model identity is environment-only: no model is baked into source.
+    # Provider/model selection is environment-only: no model is baked into source.
     default_model: str = os.getenv("DEFAULT_MODEL", "").strip()
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
+
+    # Legacy provider configuration is retained for module compatibility; Router enables Nara only.
+    openai_key: str = os.getenv("OPENAI_API_KEY", "").strip()
+    openrouter_key: str = os.getenv("OPENROUTER_API_KEY", "").strip()
+    anthropic_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    gemini_key: str = os.getenv("GEMINI_API_KEY", "").strip()
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    openai_model: str = os.getenv("OPENAI_MODEL", "").strip()
+    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "").strip()
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "").strip()
+    gemini_model: str = os.getenv("GEMINI_MODEL", "").strip()
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "").strip()
+
     api_token: str = os.getenv("API_TOKEN", "").strip()
     api_host: str = os.getenv("API_HOST", "127.0.0.1").strip()
     api_port: int = _int(os.getenv("API_PORT"), 8765)
