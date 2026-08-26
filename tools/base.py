@@ -60,7 +60,7 @@ class Tool:
             "permission_scope": self.permission_scope,
             "runtime_requirements": list(self.runtime_requirements),
             "timeout": self.timeout_seconds,
-            "availability": self.profiles,
+            "availability": sorted(self.profiles),
             "result_schema": self.result_schema,
             "auto_selectable": self.auto_selectable,
         }
