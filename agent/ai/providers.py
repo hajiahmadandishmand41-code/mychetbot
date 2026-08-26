@@ -1,4 +1,9 @@
-"""Provider-neutral AI interface with OpenAI-compatible, Anthropic and Gemini adapters."""
+"""Provider-neutral AI adapters.
+
+OpenAI and OpenRouter use OpenAI-compatible Chat Completions. Gemini also exposes
+an OpenAI-compatible endpoint, while Claude is normalized from its native
+Messages API into the same internal tool-call shape used by the Agent.
+"""
 import os
 from abc import ABC, abstractmethod
 from typing import Any
@@ -19,8 +24,9 @@ class OpenAICompatible(Provider):
         payload = {"model": model, "messages": messages, "max_tokens": 4096}
         if tools:
             payload["tools"] = tools
-        r = requests.post(f"{self.base_url}/chat/completions", json=payload,
-                          headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, timeout=90)
+        r = requests.post(f"{self.base_url}/chat/completions", json=payload, headers={
+            "Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"
+        }, timeout=90)
         r.raise_for_status()
         return r.json()
 
@@ -31,42 +37,50 @@ class Anthropic(Provider):
 
     def chat(self, messages, model, tools=None):
         system = ""
-        clean = []
+        converted = []
         for m in messages:
-            if m["role"] == "system":
-                system = m.get("content", "")
+            role = m.get("role")
+            if role == "system":
+                system = str(m.get("content", ""))
+            elif role == "tool":
+                converted.append({"role": "user", "content": [{
+                    "type": "tool_result", "tool_use_id": m.get("tool_call_id", ""), "content": str(m.get("content", ""))
+                }]})
+            elif role == "assistant" and m.get("tool_calls"):
+                blocks = []
+                if m.get("content"):
+                    blocks.append({"type": "text", "text": str(m["content"])})
+                for tc in m["tool_calls"]:
+                    fn = tc.get("function", {})
+                    import json
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                    except Exception:
+                        args = {}
+                    blocks.append({"type": "tool_use", "id": tc.get("id", fn.get("name", "call")), "name": fn.get("name", ""), "input": args})
+                converted.append({"role": "assistant", "content": blocks})
             else:
-                clean.append(m)
-        payload = {"model": model, "max_tokens": 4096, "messages": clean}
+                converted.append({"role": "user" if role == "user" else "assistant", "content": m.get("content", "")})
+        payload = {"model": model, "max_tokens": 4096, "messages": converted}
         if system:
             payload["system"] = system
         if tools:
-            payload["tools"] = [t["function"] for t in tools]
+            payload["tools"] = [t.get("function", t) for t in tools]
         r = requests.post("https://api.anthropic.com/v1/messages", json=payload, headers={
             "x-api-key": self.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"
         }, timeout=90)
         r.raise_for_status()
         data = r.json()
+        import json
         text = "".join(x.get("text", "") for x in data.get("content", []) if x.get("type") == "text")
-        return {"choices": [{"message": {"role": "assistant", "content": text}}]}
-
-
-class Gemini(Provider):
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-
-    def chat(self, messages, model, tools=None):
-        contents = []
-        for m in messages:
-            if m["role"] == "system":
-                continue
-            role = "model" if m["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": m.get("content", "")}]})
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        r = requests.post(url, params={"key": self.api_key}, json={"contents": contents}, timeout=90)
-        r.raise_for_status()
-        text = r.json()["candidates"][0]["content"]["parts"][0].get("text", "")
-        return {"choices": [{"message": {"role": "assistant", "content": text}}]}
+        calls = []
+        for x in data.get("content", []):
+            if x.get("type") == "tool_use":
+                calls.append({"id": x.get("id", x.get("name", "call")), "type": "function", "function": {"name": x.get("name", ""), "arguments": json.dumps(x.get("input", {}), ensure_ascii=False)}})
+        msg = {"role": "assistant", "content": text}
+        if calls:
+            msg["tool_calls"] = calls
+        return {"choices": [{"message": msg}]}
 
 
 def get_provider(name: str | None = None) -> Provider:
@@ -75,8 +89,8 @@ def get_provider(name: str | None = None) -> Provider:
         return OpenAICompatible(os.environ["OPENAI_API_KEY"], os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"), name)
     if name == "openrouter":
         return OpenAICompatible(os.environ["OPENROUTER_API_KEY"], os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), name)
-    if name == "claude" or name == "anthropic":
+    if name in {"claude", "anthropic"}:
         return Anthropic(os.environ["ANTHROPIC_API_KEY"])
     if name == "gemini":
-        return Gemini(os.environ["GEMINI_API_KEY"])
+        return OpenAICompatible(os.environ["GEMINI_API_KEY"], os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"), name)
     raise ValueError(f"Unsupported AI provider: {name}")
