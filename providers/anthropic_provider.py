@@ -7,9 +7,11 @@ from providers.base import BaseProvider
 class AnthropicProvider(BaseProvider):
     name = "anthropic"
     base_url = "https://api.anthropic.com/v1"
-    default_model = "claude-3-5-sonnet-latest"
 
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
+        selected_model = (model or config.anthropic_model).strip()
+        if not selected_model:
+            raise ValueError("ANTHROPIC_MODEL is not configured")
         system = " ".join(m["content"] for m in messages if m["role"] == "system")
         convo = [m for m in messages if m["role"] != "system"]
         data = await self._post(
@@ -20,7 +22,7 @@ class AnthropicProvider(BaseProvider):
                 "Content-Type": "application/json",
             },
             {
-                "model": model or self.default_model,
+                "model": selected_model,
                 "max_tokens": kw.get("max_tokens", 1024),
                 "system": system,
                 "messages": convo,
