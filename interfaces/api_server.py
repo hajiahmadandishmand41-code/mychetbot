@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -14,11 +15,23 @@ from core.config import config
 from core.errors import ConfigurationError, ProviderError
 from core.logger import get_logger
 from core.security import constant_time_eq, redact
+from interfaces.telegram import telegram_client
 from providers.registry import list_providers
 from tools.registry import tool_specs
 
 log = get_logger("api")
-app = FastAPI(title="MyChatBot API", version="0.3.0")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        await telegram_client.configure_webhook()
+    except Exception:
+        log.exception("Telegram webhook configuration failed")
+    yield
+
+
+app = FastAPI(title="MyChatBot API", version="0.4.0", lifespan=lifespan)
 _agents: dict[str, Agent] = {}
 _agent_locks: dict[str, asyncio.Lock] = {}
 _agents_lock = threading.RLock()
@@ -129,6 +142,7 @@ def health() -> dict:
         "providers": list_providers(),
         "api_auth_configured": bool(config.api_token),
         "tool_profile": config.api_tool_profile,
+        "telegram_configured": telegram_client.enabled,
     }
 
 
@@ -136,6 +150,20 @@ def health() -> dict:
 def tools(authorization: str | None = Header(default=None)):
     _auth(authorization)
     return {"tools": tool_specs(config.api_tool_profile)}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(
+    update: dict,
+    telegram_secret: str | None = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token"),
+):
+    expected = telegram_client.webhook_secret
+    if not expected or not telegram_secret or not constant_time_eq(telegram_secret, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not telegram_client.enabled:
+        raise HTTPException(status_code=503, detail="Telegram integration is not configured")
+    asyncio.create_task(telegram_client.handle_update(update))
+    return {"ok": True}
 
 
 @app.post("/chat")
