@@ -7,24 +7,16 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from core.agent import Agent
-from core.config import config
-from providers.registry import list_providers
 
 console = Console()
-BANNER = '''[bold cyan]MyChatBot[/] — Personal AI Assistant (Termux)
-providers: {p} | default: {d} | shell: {s}
-دستورات: /exit  /clear  /facts  /tools  /provider <name>'''
+BANNER = """[bold cyan]MyChatBot[/] — دستیار گفت‌وگویی حرفه‌ای
+دستورات: /exit  /clear  /memory
+"""
 
 
 async def main() -> None:
     agent = Agent(session="cli")
-    console.print(
-        BANNER.format(
-            p=", ".join(list_providers()) or "none",
-            d=config.default_provider,
-            s="on" if config.allow_shell else "off",
-        )
-    )
+    console.print(BANNER)
     while True:
         try:
             user = console.input("[bold green]شما ›[/] ").strip()
@@ -38,23 +30,15 @@ async def main() -> None:
             agent.memory.clear("cli")
             console.print("حافظه پاک شد.")
             continue
-        if user == "/facts":
-            console.print(agent.memory.all_facts())
-            continue
-        if user == "/tools":
-            from tools.registry import tool_specs
-            for spec in tool_specs():
-                console.print(f"- [cyan]{spec['name']}[/]: {spec['description']}")
-            continue
-        if user.startswith("/provider "):
-            agent.router.preferred = user.split(maxsplit=1)[1].strip()
-            console.print(f"provider -> {agent.router.preferred}")
+        if user == "/memory":
+            facts = agent.memory.all_facts("cli")
+            console.print(facts or "حافظه‌ای ذخیره نشده است.")
             continue
         try:
             answer = await agent.ask(user)
             console.print(Markdown(answer))
         except Exception as exc:  # noqa: BLE001
-            console.print(f"[red]خطا:[/] {exc}")
+            console.print(f"[red]خطا:[/] {type(exc).__name__}: {exc}")
 
 
 def entrypoint() -> None:
