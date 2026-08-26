@@ -68,10 +68,32 @@ class Config:
         os.getenv("AUTO_TOOLS"),
         (
             "wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report",
-            "battery", "local_ip", "ping", "dns_lookup", "port_check",
+            "battery", "local_ip", "ping", "dns_lookup", "port_check", "web_research", "web_compare",
+            "server_diagnostics",
         ),
     )
     tool_profile: str = os.getenv("TOOL_PROFILE", "local").strip() or "local"
+
+    # Public web research limits. Web pages are always treated as untrusted data.
+    web_enabled: bool = _bool(os.getenv("WEB_RESEARCH_ENABLED"), True)
+    web_max_response_bytes: int = _int(os.getenv("WEB_MAX_RESPONSE_BYTES"), 2_000_000)
+    web_max_redirects: int = _int(os.getenv("WEB_MAX_REDIRECTS"), 3)
+    web_connect_timeout: int = _int(os.getenv("WEB_CONNECT_TIMEOUT"), 8)
+    web_read_timeout: int = _int(os.getenv("WEB_READ_TIMEOUT"), 15)
+
+    # Render/container runtime execution is disabled by default and only exposes fixed operations.
+    server_execution_enabled: bool = _bool(os.getenv("SERVER_EXECUTION_ENABLED"), False)
+    server_timeout_seconds: int = _int(os.getenv("SERVER_TIMEOUT_SECONDS"), 20)
+    server_memory_limit_mb: int = _int(os.getenv("SERVER_MEMORY_LIMIT_MB"), 256)
+    server_process_limit: int = _int(os.getenv("SERVER_PROCESS_LIMIT"), 16)
+    server_output_limit: int = _int(os.getenv("SERVER_OUTPUT_LIMIT"), 12_000)
+    server_allowed_env: tuple[str, ...] = _csv(
+        os.getenv("SERVER_ALLOWED_ENV"),
+        ("PATH", "HOME", "PYTHONPATH", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"),
+    )
+    server_safe_scripts: tuple[str, ...] = _csv(os.getenv("SERVER_SAFE_SCRIPTS"), ())
+    server_exec_allowlist: tuple[str, ...] = _csv(os.getenv("SERVER_EXEC_ALLOWLIST"), ())
+    server_exec_allowed_sessions: tuple[str, ...] = _csv(os.getenv("SERVER_EXEC_ALLOWED_SESSIONS"), ())
 
     def __post_init__(self) -> None:
         if not 1 <= self.api_port <= 65535:
@@ -85,6 +107,14 @@ class Config:
         self.memory_max_message_chars = max(1000, min(self.memory_max_message_chars, 50_000))
         self.rate_limit_requests = max(1, min(self.rate_limit_requests, 10_000))
         self.rate_limit_window_seconds = max(1, min(self.rate_limit_window_seconds, 86_400))
+        self.web_max_response_bytes = max(100_000, min(self.web_max_response_bytes, 10_000_000))
+        self.web_max_redirects = max(0, min(self.web_max_redirects, 5))
+        self.web_connect_timeout = max(1, min(self.web_connect_timeout, 30))
+        self.web_read_timeout = max(1, min(self.web_read_timeout, 60))
+        self.server_timeout_seconds = max(1, min(self.server_timeout_seconds, 30))
+        self.server_memory_limit_mb = max(64, min(self.server_memory_limit_mb, 2048))
+        self.server_process_limit = max(1, min(self.server_process_limit, 64))
+        self.server_output_limit = max(1000, min(self.server_output_limit, 100_000))
 
     def ensure_data_dir(self) -> None:
         Path(self.data_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
