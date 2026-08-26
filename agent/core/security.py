@@ -20,8 +20,8 @@ class Decision:
 SAFE_TO_AUTO_RUN = {
     "list_files", "read_file", "memory_search", "memory_save",
     "zip_info", "zip_extract", "wifi_manager", "network_info",
-    "connectivity", "ping", "dns_lookup", "system_info", "battery",
-    "storage_info", "wifi_interface_info", "wifite_detect",
+    "connectivity", "ping", "dns_lookup", "traceroute", "system_info",
+    "battery", "storage_info", "wifi_interface_info", "wifite_detect",
 }
 
 CONFIRM = {
