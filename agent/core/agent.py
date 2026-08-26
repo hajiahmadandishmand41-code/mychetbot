@@ -1,5 +1,7 @@
 """Central decision loop: user -> model -> tool -> permission -> result -> model."""
 import json
+import os
+import secrets
 from agent.ai.providers import get_provider
 from agent.memory.store import MemoryStore
 from agent.tools.registry import ToolRegistry
@@ -22,7 +24,7 @@ class Agent:
         messages.extend((history or [])[-20:])
         messages.append({"role": "user", "content": user_text})
         provider = get_provider(provider_name)
-        model = model or __import__("os").getenv("AI_MODEL", "gpt-5.6-luna")
+        model = model or os.getenv("AI_MODEL", "gpt-5.6-luna")
 
         for _ in range(8):
             response = provider.chat(messages, model, self.registry.definitions())
@@ -40,7 +42,7 @@ class Agent:
                 args = json.loads(call["function"].get("arguments", "{}"))
                 result = self.registry.execute(name, args, confirmed=False)
                 if result.get("confirmation_required"):
-                    pending.append({"name": name, "arguments": args, "reason": result["reason"]})
+                    pending.append({"id": secrets.token_urlsafe(18), "name": name, "arguments": args, "reason": result["reason"]})
                     continue
                 messages.append({"role": "tool", "tool_call_id": call.get("id", name), "content": json.dumps(result, ensure_ascii=False)})
             if pending:
