@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from core.config import config
 from core.security import redact
 
 MAX_RESPONSE_BYTES = 2_000_000
@@ -33,25 +34,30 @@ class _PageParser(HTMLParser):
         self.text_parts: list[str] = []
         self.links: list[dict[str, str]] = []
         self.metadata: dict[str, str] = {}
+        self.headings: list[str] = []
         self._in_title = False
         self._skip_depth = 0
         self._current_link: dict[str, str] | None = None
+        self._heading_tag: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = {k.lower(): (v or "") for k, v in attrs}
-        if tag.lower() in {"script", "style", "noscript", "template", "svg"}:
+        lower = tag.lower()
+        if lower in {"script", "style", "noscript", "template", "svg"}:
             self._skip_depth += 1
             return
         if self._skip_depth:
             return
-        if tag.lower() == "title":
+        if lower == "title":
             self._in_title = True
-        if tag.lower() == "meta":
+        if lower == "meta":
             name = (attr.get("name") or attr.get("property") or attr.get("itemprop") or "").strip().lower()
             content = attr.get("content", "").strip()
             if name and content and len(self.metadata) < 100:
                 self.metadata[name] = content[:2_000]
-        if tag.lower() == "a" and attr.get("href") and len(self.links) < MAX_LINKS:
+        if lower in {"h1", "h2", "h3"}:
+            self._heading_tag = lower
+        if lower == "a" and attr.get("href") and len(self.links) < MAX_LINKS:
             self._current_link = {"href": attr["href"], "text": ""}
 
     def handle_endtag(self, tag: str) -> None:
@@ -63,6 +69,8 @@ class _PageParser(HTMLParser):
             return
         if lower == "title":
             self._in_title = False
+        if lower in {"h1", "h2", "h3"}:
+            self._heading_tag = None
         if lower == "a" and self._current_link is not None:
             text = " ".join(self._current_link["text"].split())[:500]
             self.links.append({"href": self._current_link["href"], "text": text})
@@ -76,6 +84,8 @@ class _PageParser(HTMLParser):
             return
         if self._in_title:
             self.title_parts.append(value)
+        if self._heading_tag and len(self.headings) < 50:
+            self.headings.append(value[:500])
         self.text_parts.append(value)
         if self._current_link is not None:
             self._current_link["text"] += " " + value
@@ -111,30 +121,29 @@ def _validate_url(url: str) -> str:
     return parsed.geturl()
 
 
-def _fetch(url: str) -> tuple[str, int, str, int]:
+def _fetch(url: str) -> tuple[str, int, str, int, str]:
     current = _validate_url(url)
-    timeout = httpx.Timeout(connect=8.0, read=15.0, write=8.0, pool=8.0)
+    timeout = httpx.Timeout(connect=float(config.web_connect_timeout), read=float(config.web_read_timeout), write=8.0, pool=8.0)
     headers = {"User-Agent": "MyChatBot-PublicResearch/1.0", "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"}
     with httpx.Client(timeout=timeout, follow_redirects=False, headers=headers) as client:
-        for _ in range(MAX_REDIRECTS + 1):
-            response = None
+        for _ in range(min(config.web_max_redirects, MAX_REDIRECTS) + 1):
             try:
                 with client.stream("GET", current) as response:
                     if response.status_code in {301, 302, 303, 307, 308}:
                         location = response.headers.get("location")
                         if not location:
-                            return "", response.status_code, str(response.url), len(response.content)
+                            return "", response.status_code, str(response.url), 0, response.headers.get("content-type", "")
                         current = _validate_url(urljoin(current, location))
                         continue
                     response.raise_for_status()
                     body = bytearray()
                     for chunk in response.iter_bytes():
                         body.extend(chunk)
-                        if len(body) >= MAX_RESPONSE_BYTES:
+                        if len(body) >= config.web_max_response_bytes:
                             break
-                    raw = bytes(body[:MAX_RESPONSE_BYTES])
+                    raw = bytes(body[: min(config.web_max_response_bytes, MAX_RESPONSE_BYTES)])
                     encoding = response.encoding or "utf-8"
-                    return raw.decode(encoding, errors="replace"), response.status_code, str(response.url), len(raw)
+                    return raw.decode(encoding, errors="replace"), response.status_code, str(response.url), len(raw), response.headers.get("content-type", "")
             except httpx.TimeoutException as exc:
                 raise TimeoutError("web request timed out") from exc
             except httpx.HTTPStatusError as exc:
@@ -187,7 +196,7 @@ def _extract(url: str, body: str, content_type: str = "") -> dict[str, Any]:
         "metadata": {k: redact(v) for k, v in metadata.items()},
         "links": links[:MAX_LINKS],
         "extracted_data": {
-            "headings": [],
+            "headings": parser.headings,
             "publication_date": publication_date,
             "content_type": content_type,
         },
@@ -198,15 +207,11 @@ def research_page(url: str) -> str:
     started = time.monotonic()
     request_id = f"web-{int(time.time() * 1000)}"
     retrieved_at = datetime.now(timezone.utc).isoformat()
+    if not config.web_enabled:
+        return json.dumps({"status": "disabled", "data": {}, "warnings": ["web research is disabled"], "source": url, "duration_ms": 0, "request_id": request_id}, ensure_ascii=False)
     try:
         current = _validate_url(url)
-        text, status, final_url, size = _fetch(current)
-        content_type = ""
-        try:
-            parsed = urlparse(final_url)
-            content_type = parsed.path.rsplit(".", 1)[-1] if "." in parsed.path else ""
-        except Exception:
-            pass
+        text, status, final_url, size, content_type = _fetch(current)
         data = _extract(final_url, text, content_type)
         result = {
             "status": "success",
@@ -239,6 +244,7 @@ def research_page(url: str) -> str:
 
 
 def compare_pages(urls_json: str) -> str:
+    started = time.monotonic()
     try:
         urls = json.loads(urls_json)
         if not isinstance(urls, list) or not 2 <= len(urls) <= 5 or not all(isinstance(v, str) for v in urls):
@@ -249,8 +255,8 @@ def compare_pages(urls_json: str) -> str:
     successful = [p for p in pages if p.get("status") == "success"]
     return json.dumps({
         "status": "success" if successful else "error",
-        "data": {"pages": pages, "comparison_basis": "title, metadata, publication_date, and extracted text"},
+        "data": {"pages": pages, "comparison_basis": "title, metadata, publication_date, headings, and extracted text"},
         "warnings": ["comparison is based only on retrieved public content"],
         "source": urls,
-        "duration_ms": 0,
+        "duration_ms": int((time.monotonic() - started) * 1000),
     }, ensure_ascii=False)
