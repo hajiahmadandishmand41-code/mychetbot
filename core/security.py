@@ -13,15 +13,17 @@ from cryptography.fernet import Fernet
 from core.config import config
 
 DANGEROUS = re.compile(
-    r"(?:\brm\s+-rf\b|\bmkfs(?:\.|\s)|:\(\)\s*\{|\bdd\s+if=|>\s*/dev/|\bchmod\s+777\b)",
+    r"(?:\brm\s+-rf\b|\bmkfs(?:\.|\s)|:\(\)\s*\{|\bdd\s+if=|>\s*/dev/|\bchmod\s+777\b|\bshutdown\b|\breboot\b|\bpoweroff\b|\bmount\b|\bumount\b|\bnsenter\b|\bunshare\b|\bchroot\b)",
     re.IGNORECASE,
 )
 SHELL_META = re.compile(r"[;&|<>`$()]|\n|\r")
 SECRET_PATTERNS = [
     re.compile(r"(?:sk-[A-Za-z0-9_-]{8,})"),
     re.compile(r"(?:AKIA[0-9A-Z]{16})"),
-    re.compile(r"(?:Bearer\s+)[A-Za-z0-9._~-]{12,}", re.IGNORECASE),
-    re.compile(r"(?:api[_-]?key\s*[=:]\s*)[^\s,;]+", re.IGNORECASE),
+    re.compile(r"(?:Bearer\s+)[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
+    re.compile(r"(?:Basic\s+)[A-Za-z0-9+/=]{12,}", re.IGNORECASE),
+    re.compile(r"(?:api[_-]?key|token|password|passwd|secret|cookie|authorization|database_url|telegram_bot_token|nara_api_key)\s*[=:]\s*[^\s,;]+", re.IGNORECASE),
+    re.compile(r"(?:https?://)([^\s/@]+):([^\s/@]+)@", re.IGNORECASE),
 ]
 
 
@@ -62,6 +64,10 @@ def fingerprint(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+def contains_secret(text: str) -> bool:
+    return any(pattern.search(text or "") for pattern in SECRET_PATTERNS)
+
+
 def is_command_allowed(cmd: str) -> tuple[bool, str]:
     command = cmd.strip()
     if not config.allow_shell:
@@ -79,9 +85,12 @@ def is_command_allowed(cmd: str) -> tuple[bool, str]:
 
 
 def redact(text: str) -> str:
-    redacted = text
+    redacted = text or ""
     for pattern in SECRET_PATTERNS:
         redacted = pattern.sub("***REDACTED***", redacted)
+    redacted = re.sub(r"(?i)(authorization\s*:\s*)([^\r\n]+)", r"\1***REDACTED***", redacted)
+    redacted = re.sub(r"(?i)(cookie\s*:\s*)([^\r\n]+)", r"\1***REDACTED***", redacted)
+    redacted = re.sub(r"(?i)(database_url\s*[=:]\s*)([^\s]+)", r"\1***REDACTED***", redacted)
     redacted = re.sub(
         r"\b([0-9A-Fa-f]{2}:){2,5}[0-9A-Fa-f]{2}\b",
         lambda m: ":".join(m.group(0).split(":")[:3]) + ":xx:xx:xx",
