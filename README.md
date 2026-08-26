@@ -1,54 +1,88 @@
 # MyChatBot
 
-Personal AI Agent for Android + Termux. This project uses Hermes Mobile as an architectural reference, but is a clean-room redesign for MyChatBot rather than a full copy.
+**Personal AI Assistant for Android + Termux** built by **Haji Ahmad**.
+
+MyChatBot is a modular personal assistant: the Flutter UI talks to a localhost-only FastAPI Agent in Termux; the Agent selects AI providers and tools, checks permissions, executes authorized operations, stores memory, and returns results.
 
 ## Architecture
 
 ```text
+User
+  ↓
 Flutter Android UI
-      |
-      | HTTP localhost
-      v
+  ↓ localhost:18923
 Termux FastAPI Bridge
-      |
-      v
-Central Agent -> Provider Adapter -> OpenAI / Claude / Gemini / OpenRouter
-      |
-      +-> Permission Policy -> Tools -> Termux / Files / Memory / Skills
+  ↓
+Central Agent
+  ├─ Memory
+  ├─ Provider Adapter
+  ├─ Tool Registry
+  └─ Permission Policy
+       ↓
+   SAFE / CONFIRM / BLOCKED
+       ↓
+Files / Termux / Phone / Wi-Fi / Network
 ```
 
-## Why this differs from Hermes
+## AI providers
 
-Hermes Mobile contains useful patterns: a Python agent loop, tool registry, persistent memory, skills, a Flutter chat layer, and a native Android/Termux bridge. Its current implementation also has tight Hermes/Nous naming and executes shell/file operations directly. MyChatBot therefore keeps the architectural ideas but separates provider adapters, agent policy, tool registry, and Termux transport. Sensitive tools require confirmation instead of executing immediately.
+- OpenAI
+- OpenRouter
+- Claude / Anthropic
+- Gemini
 
-## Current repository status
+The Agent uses a normalized internal tool-call format. Gemini is configured through Google's OpenAI-compatible endpoint; Google documents function calling on that compatibility layer. https://ai.google.dev/gemini-api/docs/openai
 
-Implemented in this first foundation:
-- Provider abstraction for OpenAI, OpenRouter, Claude/Anthropic and Gemini.
-- Central agent loop with bounded tool iterations.
-- Persistent JSONL memory.
-- Extensible tool registry.
-- Baseline file and Termux tools.
-- Conservative confirmation policy for terminal/write/delete operations.
-- FastAPI localhost bridge.
-- Initial Flutter chat client with provider switching.
-- `.env.example` and secret-safe `.gitignore`.
-- Initial security tests.
+## Tool families
 
-Not yet complete:
-- Android native MethodChannel/Termux RUN_COMMAND integration.
-- Android notifications and clipboard adapters.
-- Secure Android Keystore-backed secret storage.
-- Full streaming UI.
-- PDF/DOCX conversion tools.
-- Skills lifecycle and sandboxing.
-- Confirmation UI/token flow.
-- Comprehensive provider-specific tool-call normalization (Claude/Gemini tool calling needs dedicated adapters).
-- Release build configuration and device verification.
+```text
+agent/tools/
+├── filesystem/
+│   └── archive.py
+├── phone/
+│   └── system.py
+├── wifi/
+│   ├── manager.py
+│   └── wifite_tool.py
+├── builtin.py
+└── registry.py
+```
 
-## Termux development
+Implemented tools include:
 
-Install Python dependencies in Termux:
+- `list_files`, `read_file`, `write_file`, `delete_file`
+- `terminal`
+- `memory_search`, `memory_save`
+- `zip_info`, `zip_extract`
+- `system_info`, `battery`, `storage_info`
+- `wifi_manager`, `network_info`, `wifi_interface_info`
+- `connectivity`, `ping`, `dns_lookup`
+- `wifi_scan`, `network_scan`
+- `wifite_detect`, `wifite_tool`
+
+## Permission model
+
+| Level | Examples | Behavior |
+|---|---|---|
+| SAFE | Wi-Fi status, ping, DNS, battery, storage, file listing/reading | Runs automatically |
+| CONFIRM | terminal, file write/delete, network scan, Wi-Fi scan, Wifite adapter, clipboard write | Requires explicit user confirmation |
+| BLOCKED | credential theft, unauthorized access, deauthentication/third-party attacks | Never executed |
+
+Wifite is intentionally separated from generic shell execution. The current adapter detects installation/root requirements and returns an authorized-audit plan; it does not expose unrestricted attack flags to the Agent.
+
+## Wi-Fi and network safety
+
+Network discovery is restricted by policy to authorized networks. `network_scan` requires confirmation. The Agent must never be used to break Wi-Fi passwords, collect credentials, deauthenticate other networks, or attack third-party systems.
+
+## Android + Termux
+
+The project does **not** bundle a private Termux root filesystem. It uses the installed Termux app. Android integration is documented under `android/` and the protocol under `termux/bridge/PROTOCOL.md`.
+
+Current Termux documentation states that third-party apps can use `RUN_COMMAND` when the required `com.termux.permission.RUN_COMMAND` permission is granted; current target-SDK package-visibility requirements also apply. The project keeps this path behind the same Agent permission policy. https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent
+
+For Android APIs such as structured battery information, notifications and other device APIs, the official Termux:API project provides command-line access to Android APIs. https://github.com/termux/termux-api
+
+## Running in Termux
 
 ```bash
 pkg update
@@ -56,22 +90,48 @@ pkg install python
 cd ~/mychetbot
 python -m pip install -r termux/requirements.txt
 cp .env.example .env
-# edit .env and add exactly the provider key you intend to use
+# edit .env and set exactly the provider key you need
 bash termux/start.sh
 ```
 
-The bridge listens only on `127.0.0.1` by default. The Flutter app uses `http://127.0.0.1:18923`.
+The bridge defaults to `127.0.0.1:18923` and should not be exposed to the LAN.
 
-## Provider examples
+## Flutter
 
-Set `AI_PROVIDER` to one of `openai`, `claude`, `gemini`, or `openrouter`, and set the corresponding API key. `AI_MODEL` selects the model. OpenRouter and OpenAI use OpenAI-compatible chat-completions; Claude and Gemini are isolated behind their own adapters so future provider changes do not leak into the Agent core.
+The Flutter client contains tabs for:
+
+- Chat
+- Tools
+- Wi-Fi
+- Memory
+- Settings
+
+The Chat screen displays confirmation dialogs for sensitive tool calls instead of executing them silently.
+
+## Testing
+
+Python tests cover:
+
+- permission levels
+- memory persistence
+- tool registration
+- Wifite detection when installed or missing
+- ZIP extraction
+
+Run:
+
+```bash
+pytest -q
+```
+
+Flutter/Android build verification still needs a machine with Flutter + Android SDK installed; this environment cannot execute that toolchain.
+
+## Hermes Mobile reference
+
+Reference: https://github.com/sinonchum/hermes-mobile
+
+Hermes was inspected before implementation. Useful architectural ideas retained or redesigned include the bounded Agent loop, persistent memory/session approach, tool registry, Flutter-to-native separation, and the local bridge concept. Hermes-specific Nous branding/OAuth, package names, and bundled Termux bootstrap were deliberately not copied.
 
 ## Security rules
 
-Never commit `.env`, API keys, OAuth tokens, or device credentials. Read-only tools can run automatically. State-changing or sensitive tools are returned as confirmation-required actions. Future Android integrations must preserve this rule and must not expose arbitrary shell execution to an untrusted network interface.
-
-## Hermes Mobile review
-
-Reference repository: https://github.com/sinonchum/hermes-mobile
-
-The full repository tree was inspected before writing the foundation. Hermes is a small Flutter + Kotlin + Python project with its agent/LLM/tools/memory/session code under `android/app/src/main/assets/bridge`, Flutter UI/services under `lib`, and Android bridge/bootstrap under `android/app/src/main/kotlin`. The key reusable concepts are the bounded agent loop, persistent memory/session model, centralized platform service, and bridge separation. Hermes-specific Nous OAuth, package names, branding, and bundled bootstrap implementation are intentionally not copied into MyChatBot.
+Never commit `.env`, API keys, OAuth tokens, passwords, or device credentials. Logs must not print secrets. The localhost bridge must remain local. Sensitive tools must pass the centralized permission policy, and blocked tool names cannot be registered as executable functionality without changing the policy deliberately.
