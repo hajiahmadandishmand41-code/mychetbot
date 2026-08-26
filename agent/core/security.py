@@ -18,20 +18,20 @@ class Decision:
 
 
 SAFE_TO_AUTO_RUN = {
-    "list_files", "read_file", "memory_search", "memory_save",
-    "zip_info", "zip_extract", "wifi_manager", "network_info",
-    "connectivity", "ping", "dns_lookup", "traceroute", "system_info",
-    "battery", "storage_info", "wifi_interface_info", "wifite_detect",
+    "list_files", "read_file", "memory_search", "memory_save", "skill_list", "skill_read",
+    "zip_info", "zip_extract", "wifi_manager", "network_info", "connectivity", "ping",
+    "dns_lookup", "traceroute", "system_info", "battery", "storage_info", "wifi_interface_info",
+    "wifite_detect",
 }
 
 CONFIRM = {
-    "write_file", "delete_file", "terminal", "network_scan", "wifite_tool",
-    "clipboard_write", "send_notification", "wifi_scan",
+    "write_file", "delete_file", "terminal", "network_scan", "wifite_tool", "wifi_scan",
+    "clipboard_write", "send_notification", "skill_save",
 }
 
 BLOCKED = {
-    "credential_theft", "unauthorized_access", "third_party_attack",
-    "deauth_attack", "password_cracking", "token_exfiltration",
+    "credential_theft", "unauthorized_access", "third_party_attack", "deauth_attack",
+    "password_cracking", "token_exfiltration",
 }
 
 
@@ -41,5 +41,5 @@ def check(tool_name: str, arguments: dict) -> Decision:
     if tool_name in SAFE_TO_AUTO_RUN:
         return Decision(True, PermissionLevel.SAFE)
     if tool_name in CONFIRM:
-        return Decision(True, PermissionLevel.CONFIRM, True, "This operation can change device state, access active network services, or launch a security tool and requires explicit user confirmation.")
+        return Decision(True, PermissionLevel.CONFIRM, True, "This operation can change device state, write persistent data, access active network services, or launch a security tool and requires explicit user confirmation.")
     return Decision(False, PermissionLevel.BLOCKED, False, f"Unknown tool '{tool_name}' is not permitted.")
