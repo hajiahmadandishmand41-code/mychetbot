@@ -43,6 +43,14 @@ class Message:
     def to_dict(self) -> dict[str, str]:
         return {"role": self.role, "content": self.content}
 
+    def __getitem__(self, key: str) -> str:
+        """Provide legacy mapping-style access without changing the typed API."""
+        if key == "role":
+            return self.role
+        if key == "content":
+            return self.content
+        raise KeyError(key)
+
 
 class Memory:
     """SQLite-backed persistent memory with session isolation, bounded growth and relevance retrieval."""
