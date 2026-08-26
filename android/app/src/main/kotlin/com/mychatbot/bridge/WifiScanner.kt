@@ -69,7 +69,10 @@ class WifiScanner(context: Context) {
         locationPermission = hasLocationPermission(),
         nearbyWifiPermission = hasNearbyWifiPermission(),
         locationServicesEnabled = isLocationServicesEnabled(),
-        scanAvailable = isEnabled() && hasLocationPermission() && hasNearbyWifiPermission(),
+        scanAvailable = isEnabled() &&
+            hasLocationPermission() &&
+            hasNearbyWifiPermission() &&
+            isLocationServicesEnabled(),
     )
 
     @Suppress("DEPRECATION")
@@ -80,6 +83,9 @@ class WifiScanner(context: Context) {
         }
         if (!hasNearbyWifiPermission()) {
             return Result.failure(IllegalStateException("در Android 13+ مجوز NEARBY_WIFI_DEVICES لازم است"))
+        }
+        if (!isLocationServicesEnabled()) {
+            return Result.failure(IllegalStateException("برای اسکن Wi-Fi باید Location Services روشن باشد"))
         }
 
         return try {
@@ -93,6 +99,8 @@ class WifiScanner(context: Context) {
             Result.success(results)
         } catch (security: SecurityException) {
             Result.failure(IllegalStateException("دسترسی اسکن Wi-Fi موجود نیست", security))
+        } catch (state: IllegalStateException) {
+            Result.failure(state)
         }
     }
 

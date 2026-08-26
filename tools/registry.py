@@ -36,7 +36,7 @@ register(Tool("speak", "تبدیل متن به گفتار", {"text": "str"}, ter
 register(Tool("clipboard_get", "خواندن کلیپ‌بورد", {}, termux_tool.clipboard_get, profiles=DEVICE_ONLY))
 register(Tool("clipboard_set", "نوشتن در کلیپ‌بورد", {"text": "str"}, termux_tool.clipboard_set, profiles=DEVICE_ONLY))
 register(Tool("location", "موقعیت مکانی", {}, termux_tool.location, profiles=DEVICE_ONLY))
-register(Tool("http_get", "دریافت محتوای یک URL", {"url": "str"}, http_tool.http_get, profiles=LOCAL_ONLY))
+register(Tool("http_get", "دریافت محتوای یک URL عمومی", {"url": "str"}, http_tool.http_get, profiles=LOCAL_ONLY))
 register(Tool("remember", "ذخیره یک حقیقت درباره کاربر", {"key": "str", "value": "str"}, notes_tool.remember, profiles=SERVER_SAFE))
 register(Tool("recall", "بازیابی حقیقت ذخیره‌شده", {"key": "str"}, notes_tool.recall, profiles=SERVER_SAFE))
 register(Tool("list_facts", "لیست همه حقایق", {}, notes_tool.list_facts, profiles=SERVER_SAFE))

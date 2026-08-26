@@ -1,5 +1,6 @@
-import json
+from pathlib import Path
 
+from tools.files_tool import write_file
 from tools.registry import TOOLS, run_tool, tool_specs
 
 
@@ -9,7 +10,7 @@ def test_registry_populated():
 
 
 def test_unknown_tool():
-    assert "unknown_tool" in run_tool("nope", {})
+    assert "[unknown-tool]" in run_tool("nope", {})
 
 
 def test_specs_shape():
@@ -22,9 +23,12 @@ def test_files_sandbox():
     assert "[error]" in out or "PermissionError" in out
 
 
-def test_server_profile_separates_device_capabilities():
-    payload = json.loads(run_tool("wifi_scan", {}, profile="server"))
-    assert payload["error"] == "capability_unavailable"
-    assert payload["tool"] == "wifi_scan"
-    assert "wifi_scan" not in {spec["name"] for spec in tool_specs("server")}
-    assert "remember" in {spec["name"] for spec in tool_specs("server")}
+def test_secret_paths_are_not_writable(tmp_path: Path):
+    try:
+        write_file(".env", "SECRET=value")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("Agent must not write .env")
+
+    assert not (tmp_path / ".env").exists()

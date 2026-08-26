@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from tools.wifi_tool import _band, _channel, _security, _wps, capability_detection
 from tools.registry import TOOLS
+from tools.wifi_tool import _band, _channel, _security, _wps, capability_detection
 
 
 def test_security_classifier():
