@@ -213,7 +213,7 @@ def network_diagnostics() -> str:
         pass
 
     ping_host = "1.1.1.1"
-    ping_code, ping_output = _run(["ping", "-c", "1", "-W", "2", ping_host], timeout=5)
+    ping_code, _ = _run(["ping", "-c", "1", "-W", "2", ping_host], timeout=5)
     dns_ok = False
     try:
         socket.getaddrinfo("example.com", 443, type=socket.SOCK_STREAM)
@@ -243,12 +243,19 @@ def security_report() -> str:
     scan_ok, networks, scan_error = _termux_json("termux-wifi-scaninfo")
 
     current_ssid = str(info.get("ssid", "")) if info_ok and isinstance(info, dict) else ""
+    current_bssid = _mask_bssid(str(info.get("bssid", ""))) if info_ok and isinstance(info, dict) else ""
     current = None
     if scan_ok and isinstance(networks, list) and current_ssid:
         for network in networks:
-            if isinstance(network, dict) and str(network.get("ssid", "")) == current_ssid:
+            if not isinstance(network, dict):
+                continue
+            network_ssid = str(network.get("ssid", ""))
+            network_bssid = _mask_bssid(str(network.get("bssid", "")))
+            if current_bssid and network_bssid == current_bssid:
                 current = network
                 break
+            if current is None and network_ssid == current_ssid:
+                current = network
 
     capabilities = str((current or {}).get("capabilities", ""))
     security = _security(capabilities)
@@ -282,7 +289,7 @@ def security_report() -> str:
             "wps_status": wps_status,
             "capabilities": capabilities,
             "findings": findings,
-            "data_quality": "direct_scan_match" if current is not None else "connection_info_only",
+            "data_quality": "direct_bssid_match" if current is not None and current_bssid else ("direct_ssid_match" if current is not None else "connection_info_only"),
             "limitations": {
                 "wifi_scan": None if scan_ok else scan_error,
                 "wifi_connectioninfo": None if info_ok else info_error,
