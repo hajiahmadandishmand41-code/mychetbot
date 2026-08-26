@@ -1,7 +1,6 @@
 package com.mychatbot.bridge
 
 import android.Manifest
-import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -101,12 +100,4 @@ class CapabilityDetector(private val context: Context) {
         ) ?: return false
         return enabled.split(':').any { it.equals(component, ignoreCase = true) }
     }
-}
-
-class MyChatBotAccessibilityService : AccessibilityService() {
-    override fun onAccessibilityEvent(
-        event: android.view.accessibility.AccessibilityEvent?
-    ) = Unit
-
-    override fun onInterrupt() = Unit
 }
