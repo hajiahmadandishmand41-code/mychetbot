@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -10,7 +12,7 @@ from core.security import constant_time_eq, redact
 from providers.registry import list_providers
 from tools.registry import tool_specs
 
-app = FastAPI(title="MyChatBot API", version="0.2.0")
+app = FastAPI(title="MyChatBot API", version="0.3.0")
 _agents: dict[str, Agent] = {}
 
 
@@ -33,9 +35,17 @@ def _auth(authorization: str | None) -> None:
 
 @app.get("/health")
 def health():
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    if not os.path.isdir(config.data_dir) or not os.access(config.data_dir, os.W_OK):
+        raise HTTPException(status_code=503, detail="data directory is not writable")
     return {
-        "status": "ok",
+        "status": "ready",
         "providers": list_providers(),
+        "tool_profile": config.api_tool_profile,
         "api_auth_configured": bool(config.api_token),
     }
 
@@ -43,14 +53,17 @@ def health():
 @app.get("/tools")
 def tools(authorization: str | None = Header(default=None)):
     _auth(authorization)
-    return {"tools": tool_specs()}
+    return {"profile": config.api_tool_profile, "tools": tool_specs(config.api_tool_profile)}
 
 
 @app.post("/chat")
 async def chat(body: ChatIn, authorization: str | None = Header(default=None)):
     _auth(authorization)
-    key = f"{body.session}:{body.provider}:{body.model}"
-    agent = _agents.setdefault(key, Agent(body.session, body.provider, body.model))
+    key = f"{body.session}:{body.provider}:{body.model}:{config.api_tool_profile}"
+    agent = _agents.setdefault(
+        key,
+        Agent(body.session, body.provider, body.model, tool_profile=config.api_tool_profile),
+    )
     try:
         answer = await agent.ask(body.message)
     except ConfigurationError as exc:
@@ -65,5 +78,8 @@ async def chat(body: ChatIn, authorization: str | None = Header(default=None)):
 @app.get("/history/{session}")
 def history(session: str, authorization: str | None = Header(default=None)):
     _auth(authorization)
-    agent = _agents.setdefault(session, Agent(session))
+    agent = _agents.setdefault(
+        session,
+        Agent(session, tool_profile=config.api_tool_profile),
+    )
     return {"messages": [m.to_dict() for m in agent.memory.history(session, 50)]}

@@ -1,0 +1,4 @@
+{$MYCHATBOT_DOMAIN} {
+    encode gzip
+    reverse_proxy mychatbot:8765
+}

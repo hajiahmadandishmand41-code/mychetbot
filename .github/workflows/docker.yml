@@ -1,0 +1,65 @@
+name: Docker Build Verification
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: mychatbot:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validate Compose configuration
+        env:
+          MYCHATBOT_IMAGE: mychatbot:ci
+          MYCHATBOT_DOMAIN: localhost
+        run: docker compose config --quiet
+
+      - name: Start container
+        run: |
+          docker run -d --name mychatbot-ci \
+            -e TOOL_PROFILE=server \
+            -e MYCHATBOT_DATA=/data \
+            -p 127.0.0.1:8765:8765 \
+            mychatbot:ci
+
+      - name: Wait for health
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8765/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs mychatbot-ci
+          exit 1
+
+      - name: Show container health
+        if: always()
+        run: docker inspect mychatbot-ci --format '{{json .State.Health}}'
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker logs mychatbot-ci
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f mychatbot-ci || true

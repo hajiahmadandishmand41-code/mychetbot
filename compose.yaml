@@ -1,0 +1,70 @@
+services:
+  mychatbot:
+    image: ${MYCHATBOT_IMAGE:-mychatbot:local}
+    container_name: mychatbot
+    restart: unless-stopped
+    environment:
+      TOOL_PROFILE: server
+      API_TOOL_PROFILE: server
+      MYCHATBOT_DATA: /data
+      API_HOST: 0.0.0.0
+      API_PORT: 8765
+      DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-openrouter}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-openai/gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
+      API_TOKEN: ${API_TOKEN:-}
+      MYCHATBOT_MASTER_KEY: ${MYCHATBOT_MASTER_KEY:-}
+    volumes:
+      - ./data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    expose:
+      - "8765"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=3); raise SystemExit(0 if r.status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - appnet
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: mychatbot-caddy
+    restart: unless-stopped
+    environment:
+      MYCHATBOT_DOMAIN: ${MYCHATBOT_DOMAIN:-localhost}
+    depends_on:
+      mychatbot:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - appnet
+
+networks:
+  appnet:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

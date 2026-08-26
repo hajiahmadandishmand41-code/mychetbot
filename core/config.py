@@ -22,6 +22,15 @@ def _int(value: str | None, default: int) -> int:
         return default
 
 
+def _default_tool_profile() -> str:
+    explicit = os.getenv("TOOL_PROFILE")
+    if explicit:
+        return explicit.strip().lower()
+    if os.getenv("TERMUX_VERSION") or os.getenv("PREFIX", "").endswith("/com.termux/files/usr"):
+        return "device"
+    return "local"
+
+
 @dataclass
 class Config:
     default_provider: str = os.getenv("DEFAULT_PROVIDER", "openrouter")
@@ -41,6 +50,8 @@ class Config:
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = _int(os.getenv("API_PORT"), 8765)
     data_dir: str = os.getenv("MYCHATBOT_DATA", os.path.expanduser("~/.mychatbot"))
+    tool_profile: str = _default_tool_profile()
+    api_tool_profile: str = os.getenv("API_TOOL_PROFILE", "server").strip().lower()
 
     def available_providers(self) -> list[str]:
         providers = ["ollama"]
