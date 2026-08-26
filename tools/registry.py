@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from tools import files_tool, http_tool, network_tool, notes_tool, server_execution, shell_tool, termux_tool, web_research, wifi_tool
 from tools.base import Tool
@@ -32,7 +33,6 @@ register(Tool("wifi_diagnostics", "تشخیص اتصال، مسیر، DNS و د�
 register(Tool("wifi_security_report", "گزارش امنیتی passive برای شبکه Wi-Fi فعلی", {}, wifi_tool.security_report, profiles=DEVICE_ONLY, runtime_requirements=("android_wifi",)))
 register(Tool("battery", "وضعیت باتری", {}, termux_tool.battery, profiles=DEVICE_ONLY, runtime_requirements=("termux_api",)))
 register(Tool("notify", "ارسال نوتیفیکیشن اندروید", {"title": "str", "content": "str"}, termux_tool.notify, profiles=DEVICE_ONLY, permission_scope="write", auto_selectable=False))
-register(Tool("toast", "نمایش toast", {"text": "str"}, profiles=DEVICE_ONLY, permission_scope="write", auto_selectable=False)) if False else None
 register(Tool("toast", "نمایش toast", {"text": "str"}, termux_tool.toast, profiles=DEVICE_ONLY, permission_scope="write", auto_selectable=False))
 register(Tool("speak", "تبدیل متن به گفتار", {"text": "str"}, termux_tool.speak, profiles=DEVICE_ONLY, permission_scope="write", auto_selectable=False))
 register(Tool("clipboard_get", "خواندن کلیپ‌بورد", {}, termux_tool.clipboard_get, profiles=DEVICE_ONLY, runtime_requirements=("termux_api",)))
@@ -57,8 +57,6 @@ def run_tool(name: str, args: dict, profile: str = "local", session: str = "defa
     tool = TOOLS.get(name)
     if not tool:
         return json.dumps({"status": "error", "error": "unknown_tool", "message": f"Unknown tool: {name}"}, ensure_ascii=False)
-    started = __import__("time").monotonic()
-    request_id = f"tool-{__import__('time').time_ns()}"
     if not tool.available_in(profile):
         return json.dumps({"status": "error", "error": "capability_unavailable", "tool": name, "profile": profile}, ensure_ascii=False)
     if tool.dangerous:
@@ -70,13 +68,21 @@ def run_tool(name: str, args: dict, profile: str = "local", session: str = "defa
             return json.dumps({"status": "denied", "error": "unauthorized", "message": "مجوز اجرای script داخلی برای این session فعال نیست."}, ensure_ascii=False)
         if "server_execute" not in config.server_exec_allowlist:
             return json.dumps({"status": "denied", "error": "allowlist", "message": "server_execute در allowlist فعال نیست."}, ensure_ascii=False)
+    request_id = f"tool-{time.time_ns()}"
+    started = time.monotonic()
     try:
         result = tool.run(args)
-        safe_result = result
-        duration_ms = int((__import__("time").monotonic() - started) * 1000)
-        request_logger.info("tool=%s request_id=%s session=%s status=success duration_ms=%s", name, request_id, session[:32], duration_ms)
-        return safe_result
+        duration_ms = int((time.monotonic() - started) * 1000)
+        status = "success"
+        try:
+            parsed = json.loads(result)
+            status = str(parsed.get("status", status)) if isinstance(parsed, dict) else status
+        except json.JSONDecodeError:
+            if result.startswith(("[error]", "[blocked]", "[timeout]", "[arg-error]")):
+                status = "error"
+        request_logger.info("tool=%s request_id=%s session=%s status=%s duration_ms=%s", name, request_id, session[:32], status, duration_ms)
+        return result
     except Exception as exc:  # noqa: BLE001
-        duration_ms = int((__import__("time").monotonic() - started) * 1000)
+        duration_ms = int((time.monotonic() - started) * 1000)
         request_logger.error("tool=%s request_id=%s session=%s status=error error_type=%s duration_ms=%s", name, request_id, session[:32], type(exc).__name__, duration_ms)
         return json.dumps({"status": "error", "error": type(exc).__name__}, ensure_ascii=False)
