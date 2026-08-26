@@ -1,6 +1,3 @@
-import os
-from pathlib import Path
-
 import pytest
 
 from tools.files_tool import read_file, write_file
