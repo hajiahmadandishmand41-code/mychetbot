@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from tools import shell_tool, files_tool, network_tool, wifi_tool, termux_tool, http_tool, notes_tool
+from tools import files_tool, http_tool, network_tool, notes_tool, shell_tool, termux_tool, wifi_tool
 from tools.base import Tool
 
 SERVER_SAFE = frozenset({"server", "local", "device"})
@@ -55,5 +55,15 @@ def run_tool(name: str, args: dict, profile: str = "local") -> str:
     if not tool:
         return json.dumps({"error": "unknown_tool", "message": f"Unknown tool: {name}"}, ensure_ascii=False)
     if not tool.available_in(profile):
-        return json.dumps({"error": "capability_unavailable", "message": tool.unavailable_message if tool.unavailable_message != "This tool is unavailable in the current runtime." else f"Tool '{name}' requires a different runtime capability profile.", "tool": name, "profile": profile}, ensure_ascii=False)
+        return json.dumps(
+            {
+                "error": "capability_unavailable",
+                "message": tool.unavailable_message
+                if tool.unavailable_message != "This tool is unavailable in the current runtime."
+                else f"Tool '{name}' requires a different runtime capability profile.",
+                "tool": name,
+                "profile": profile,
+            },
+            ensure_ascii=False,
+        )
     return tool.run(args)
