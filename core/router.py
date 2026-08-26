@@ -17,7 +17,7 @@ class Router:
         if not config.nara_key:
             raise ConfigurationError("NARA_API_KEY is not configured")
         try:
-            text = await self._provider.chat(messages, self.model)
+            text = await self._provider.chat(messages, model=self.model)
             return {"content": text}
         except ProviderError:
             raise
