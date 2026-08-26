@@ -1,16 +1,41 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
+
 import httpx
 
-class BaseProvider(ABC):
-    name: str = "base"
+from core.errors import ProviderError
+
+
+class BaseProvider:
+    name = "base"
     timeout: float = 60.0
 
-    @abstractmethod
-    async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str: ...
+    async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
+        raise NotImplementedError
 
     async def _post(self, url: str, headers: dict, payload: dict) -> dict:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(url, headers=headers, json=payload)
-            r.raise_for_status()
-            return r.json()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.TimeoutException as exc:
+            raise ProviderError(self.name, "timeout", "provider request timed out") from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in {401, 403}:
+                code = "invalid_api_key"
+                message = "provider rejected the API credentials"
+            elif status == 429:
+                code = "rate_limit"
+                message = "provider rate limit reached"
+            elif status in {404, 400}:
+                code = "model_or_request_invalid"
+                message = f"provider rejected the request (HTTP {status})"
+            else:
+                code = "http_error"
+                message = f"provider returned HTTP {status}"
+            raise ProviderError(self.name, code, message) from exc
+        except httpx.RequestError as exc:
+            raise ProviderError(self.name, "connection_failure", "could not connect to provider") from exc
+        except ValueError as exc:
+            raise ProviderError(self.name, "invalid_response", "provider returned invalid JSON") from exc
