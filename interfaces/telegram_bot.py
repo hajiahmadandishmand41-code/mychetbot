@@ -7,10 +7,9 @@ from collections import defaultdict
 import httpx
 
 from core.agent import Agent
-from core.config import config
 from core.logger import get_logger
 
-log = get_logger("telegram")
+log = get_logger("telegram_polling")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 API = f"https://api.telegram.org/bot{TOKEN}"
 MAX_INPUT = 4000
@@ -44,7 +43,7 @@ async def _request(client: httpx.AsyncClient, method: str, **kwargs) -> dict:
             response.raise_for_status()
             payload = response.json()
             if not payload.get("ok", False):
-                raise RuntimeError(f"Telegram API error: {payload.get('description', 'unknown error')}")
+                raise RuntimeError("Telegram API error")
             return payload
         except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
             last_error = exc
@@ -73,7 +72,7 @@ def _get_agent(agents: dict[int, Agent], chat_id: int) -> Agent:
         oldest_chat_id = next(iter(agents))
         evicted = agents.pop(oldest_chat_id)
         evicted.memory.close()
-    agent = Agent(session=f"tg:{chat_id}", tool_profile=config.tool_profile)
+    agent = Agent(session=f"tg:{chat_id}")
     agents[chat_id] = agent
     return agent
 
@@ -83,7 +82,7 @@ async def main() -> None:
         raise SystemExit("TELEGRAM_BOT_TOKEN تنظیم نشده است")
 
     allowed = _allowed_chat_ids()
-    if config.telegram_require_allowlist and not allowed:
+    if os.getenv("TELEGRAM_REQUIRE_ALLOWLIST", "false").lower() in {"1", "true", "yes", "on"} and not allowed:
         raise SystemExit("TELEGRAM_ALLOWED_CHAT_IDS must be configured in production")
 
     agents: dict[int, Agent] = {}
@@ -93,7 +92,7 @@ async def main() -> None:
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
 
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-        log.info("Telegram bot started")
+        log.info("Telegram polling bot started")
         try:
             while True:
                 try:
@@ -112,21 +111,13 @@ async def main() -> None:
                             offset = max(offset, update_id + 1)
                             continue
                         chat_id = int(chat)
-
                         if allowed and chat_id not in allowed:
                             offset = max(offset, update_id + 1)
                             continue
-
                         if len(text) > MAX_INPUT:
-                            await _request(
-                                client,
-                                "POST",
-                                endpoint="sendMessage",
-                                json={"chat_id": chat_id, "text": "پیام بیش از حد طولانی است. حداکثر ۴۰۰۰ نویسه بفرستید."},
-                            )
+                            await _request(client, "POST", endpoint="sendMessage", json={"chat_id": chat_id, "text": "پیام بیش از حد طولانی است."})
                             offset = max(offset, update_id + 1)
                             continue
-
                         agent = _get_agent(agents, chat_id)
                         async with locks[chat_id]:
                             try:
@@ -134,14 +125,8 @@ async def main() -> None:
                             except Exception:  # noqa: BLE001
                                 log.exception("message processing failed")
                                 reply = "در پردازش درخواست مشکلی رخ داد. دوباره تلاش کنید."
-
                         for chunk in _chunks(reply):
-                            await _request(
-                                client,
-                                "POST",
-                                endpoint="sendMessage",
-                                json={"chat_id": chat_id, "text": chunk},
-                            )
+                            await _request(client, "POST", endpoint="sendMessage", json={"chat_id": chat_id, "text": chunk})
                         offset = max(offset, update_id + 1)
                 except asyncio.CancelledError:
                     raise
@@ -151,7 +136,6 @@ async def main() -> None:
         finally:
             for agent in agents.values():
                 agent.memory.close()
-            log.info("Telegram bot stopped")
 
 
 if __name__ == "__main__":
