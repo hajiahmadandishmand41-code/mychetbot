@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -213,7 +214,27 @@ class Agent:
 
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
         tool = plan["tool"]
-        result = run_tool(tool, plan.get("args", {}), profile=config.tool_profile, session=self.session)
+        # Several existing tools use synchronous libraries (notably httpx.Client).
+        # Never run those on the asyncio event loop: a slow/unreachable site must
+        # not freeze Telegram/API handling for every session.
+        timeout = max(1, int(TOOLS[tool].timeout_seconds))
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_tool,
+                    tool,
+                    plan.get("args", {}),
+                    config.tool_profile,
+                    self.session,
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            log.warning("internal tool timeout: tool=%s timeout=%ss", tool, timeout)
+            result = json.dumps(
+                {"status": "timeout", "error": "tool_timeout", "tool": tool, "message": "اجرای ابزار در مهلت تعیین‌شده تمام نشد."},
+                ensure_ascii=False,
+            )
         self.memory.add(self.session, "tool", json.dumps({"tool": tool, "result": redact(result)}, ensure_ascii=False))
         return redact(result)
 
@@ -257,15 +278,20 @@ class Agent:
                 "اگر نتیجه unavailable/error/blocked بود، صادقانه محدودیت را توضیح بده و چیزی جعل نکن.\n"
                 f"Internal tool result ({selected_tool}):\n{tool_result[:12000]}"
             )
-
-        messages = [self._system(text, extra=extra)] + self.memory.recent_history(self.session, limit=config.recent_history_messages)
+        messages = [self._system(text, extra), {"role": "user", "content": text}]
         try:
             result = await self.router.complete(messages)
-            reply = str(result.get("content", "")).strip()
-            if not reply:
-                raise ValueError("provider returned an empty response")
-        except Exception:
+        except Exception as exc:
             log.exception("chat completion failed")
-            reply = "در حال حاضر امکان دریافت پاسخ از سرویس هوش مصنوعی وجود ندارد."
-        self.memory.add(self.session, "assistant", redact(reply))
-        return redact(reply)
+            message = "فعلاً در اتصال به مدل هوش مصنوعی مشکل پیش آمده است. لطفاً چند لحظه بعد دوباره تلاش کنید."
+            if "ProviderError" in type(exc).__name__:
+                message = "مدل هوش مصنوعی فعلاً درخواست را نپذیرفت. لطفاً مدل یا اتصال Provider را بررسی کنید."
+            self.memory.add(self.session, "assistant", message)
+            return message
+        answer = redact(str(result.get("content", "")).strip())
+        if not answer:
+            answer = "پاسخ معتبری از مدل دریافت نشد."
+        if contains_secret(answer):
+            answer = redact(answer)
+        self.memory.add(self.session, "assistant", answer)
+        return answer
