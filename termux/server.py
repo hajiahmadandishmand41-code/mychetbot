@@ -14,6 +14,7 @@ handlers = build_tools(store)
 for name, fn in handlers.items():
     registry.register(Tool(name, f"MyChatBot {name} tool", {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}, "command": {"type": "string"}, "timeout": {"type": "integer"}}}, fn))
 agent = Agent(registry, store)
+pending: dict[str, tuple[str, dict]] = {}
 
 
 class ChatRequest(BaseModel):
@@ -21,6 +22,11 @@ class ChatRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     history: list[dict] = []
+
+
+class ConfirmRequest(BaseModel):
+    id: str
+    approve: bool
 
 
 @app.get("/health")
@@ -31,8 +37,22 @@ def health():
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        return agent.run(req.message, req.provider, req.model, req.history)
+        result = agent.run(req.message, req.provider, req.model, req.history)
+        for item in result.get("pending") or []:
+            pending[item["id"]] = (item["name"], item["arguments"])
+        return result
     except KeyError as exc:
         raise HTTPException(503, f"Missing configuration: {exc}")
     except Exception as exc:
         raise HTTPException(500, str(exc))
+
+
+@app.post("/confirm")
+def confirm(req: ConfirmRequest):
+    action = pending.pop(req.id, None)
+    if action is None:
+        raise HTTPException(404, "Confirmation expired or not found")
+    if not req.approve:
+        return {"ok": True, "cancelled": True}
+    name, args = action
+    return registry.execute(name, args, confirmed=True)
