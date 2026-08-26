@@ -2,42 +2,24 @@ from __future__ import annotations
 
 from core.config import config
 from core.errors import ConfigurationError, ProviderError
-from core.logger import get_logger
-from providers.registry import get_provider, list_providers
-
-log = get_logger("router")
-FALLBACK_ORDER = ["nara", "openrouter", "openai", "anthropic", "gemini", "ollama"]
+from providers.nara_provider import NaraProvider
 
 
 class Router:
-    """Select a configured provider and fall back on provider failures."""
+    """Single-provider chat router. Provider and model are environment-controlled."""
 
-    def __init__(self, preferred: str | None = None, model: str | None = None):
-        self.preferred = (preferred or config.default_provider).strip()
-        self.model = (model or config.default_model).strip()
-
-    def _chain(self) -> list[str]:
-        available = list_providers()
-        chain = [self.preferred] + [p for p in FALLBACK_ORDER if p != self.preferred]
-        return [p for p in chain if p in available]
+    def __init__(self):
+        self.provider = "nara"
+        self.model = config.default_model
+        self._provider = NaraProvider()
 
     async def complete(self, messages: list[dict], **kw) -> dict:
-        chain = self._chain()
-        if not chain:
-            raise ConfigurationError("API provider is not configured")
-
-        errors: list[str] = []
-        requested_model = kw.get("model", self.model)
-        for name in chain:
-            try:
-                provider = get_provider(name)
-                text = await provider.chat(messages, model=requested_model)
-                return {"provider": name, "model": requested_model, "content": text}
-            except ProviderError as exc:
-                log.warning("provider %s failed: %s", name, exc.code)
-                errors.append(f"{name}: {exc.code}")
-            except Exception as exc:  # noqa: BLE001
-                log.warning("provider %s failed unexpectedly: %s", name, type(exc).__name__)
-                errors.append(f"{name}: unexpected_error")
-
-        raise ProviderError("router", "all_providers_failed", "; ".join(errors))
+        if not config.nara_key:
+            raise ConfigurationError("NARA_API_KEY is not configured")
+        try:
+            text = await self._provider.chat(messages, model=self.model)
+            return {"content": text}
+        except ProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProviderError("nara", "unexpected_error", "chat provider request failed") from exc
