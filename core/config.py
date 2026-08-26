@@ -22,6 +22,12 @@ def _int(value: str | None, default: int) -> int:
         return default
 
 
+def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    if not value:
+        return default
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass
 class Config:
     default_model: str = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash").strip()
@@ -37,6 +43,18 @@ class Config:
     recent_history_messages: int = _int(os.getenv("RECENT_HISTORY_MESSAGES"), 12)
     memory_context_messages: int = _int(os.getenv("MEMORY_CONTEXT_MESSAGES"), 8)
     memory_context_facts: int = _int(os.getenv("MEMORY_CONTEXT_FACTS"), 12)
+    # Shell is opt-in and remains separately guarded by a whitelist.
+    allow_shell: bool = _bool(os.getenv("ALLOW_SHELL"), False)
+    shell_whitelist: tuple[str, ...] = _csv(os.getenv("SHELL_WHITELIST"), ("pwd", "ls", "whoami", "uname", "date"))
+    # Only these read-only tools may be selected automatically by the conversational agent.
+    auto_tools: tuple[str, ...] = _csv(
+        os.getenv("AUTO_TOOLS"),
+        (
+            "wifi_capabilities", "wifi_info", "wifi_scan", "wifi_diagnostics", "wifi_security_report",
+            "battery", "local_ip", "ping", "dns_lookup", "port_check",
+        ),
+    )
+    tool_profile: str = os.getenv("TOOL_PROFILE", "local").strip() or "local"
 
     def __post_init__(self) -> None:
         if not 1 <= self.api_port <= 65535:
