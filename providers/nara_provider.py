@@ -8,7 +8,9 @@ class NaraProvider(BaseProvider):
     name = "nara"
 
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
-        selected_model = (model or config.default_model).strip()
+        # NaraRouter is OpenAI-compatible, but the minimal payload is the most
+        # portable across its model backends. Keep model selection server-side.
+        selected_model = (model or config.default_model or "agnes-2.0-flash").strip()
         if not selected_model:
             raise ValueError("DEFAULT_MODEL is not configured")
         headers = {
@@ -21,10 +23,12 @@ class NaraProvider(BaseProvider):
             {
                 "model": selected_model,
                 "messages": messages,
-                "temperature": kw.get("temperature", 0.4),
             },
         )
         try:
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ValueError("NaraRouter returned an unexpected response") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("NaraRouter returned empty assistant content")
+        return content
