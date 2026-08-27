@@ -22,6 +22,8 @@ class TelegramClient:
         self.allowlist = {x.strip() for x in os.getenv("TELEGRAM_ALLOWLIST", "").split(",") if x.strip()}
         self._agents: dict[str, Agent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._client: httpx.AsyncClient | None = None
+        self._client_loop: object | None = None
 
     @property
     def enabled(self) -> bool:
@@ -37,17 +39,37 @@ class TelegramClient:
     def _lock(self, session: str) -> asyncio.Lock:
         return self._locks.setdefault(session, asyncio.Lock())
 
+    def _get_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._client_loop is not loop:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0),
+                limits=httpx.Limits(max_connections=40, max_keepalive_connections=20, keepalive_expiry=30.0),
+                http2=True,
+            )
+            self._client_loop = loop
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+        self._client_loop = None
+        for agent in self._agents.values():
+            try:
+                await agent.router._provider.aclose()
+            except Exception:
+                log.debug("agent provider close failed", exc_info=True)
+
     async def _call(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.base_url:
             raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
-        timeout = httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{self.base_url}/{method}", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            if not data.get("ok"):
-                raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown error')}")
-            return data
+        response = await self._get_client().post(f"{self.base_url}/{method}", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown error')}")
+        return data
 
     async def configure_webhook(self) -> None:
         if not self.enabled:
@@ -84,6 +106,8 @@ class TelegramClient:
         session = f"telegram:{chat_id}"
         async with self._lock(session):
             try:
+                # Give Telegram immediate UI feedback while the model works.
+                await self._call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
                 answer = await self._agent(session).ask(text.strip())
             except Exception:
                 log.exception("Telegram message processing failed")
