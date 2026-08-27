@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SmartChat from "@/components/smart-chat";
 
@@ -22,7 +22,7 @@ describe("هوشمند web chat", () => {
   it("starts without session initialization or backend dependency", async () => {
     render(<SmartChat />);
     expect(await screen.findByText("سلام! 👋")).toBeTruthy();
-    expect(screen.getByText(/من هوشمند هستم/)).toBeTruthy();
+    expect(screen.getByText("هر سؤالی داری، همین‌جا بپرس.")).toBeTruthy();
     expect(screen.getByPlaceholderText("پیامت را اینجا بنویس…")).toBeTruthy();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
@@ -44,8 +44,9 @@ describe("هوشمند web chat", () => {
     render(<SmartChat />);
     await screen.findByText("سلام! 👋");
     fireEvent.click(screen.getByRole("button", { name: "گزینه‌های بیشتر" }));
-    expect(screen.getByText("برگشت به چت")).toBeTruthy();
-    expect(screen.getByText("چت جدید")).toBeTruthy();
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByText("برگشت به چت")).toBeTruthy();
+    expect(within(menu).getByRole("button", { name: "چت جدید" })).toBeTruthy();
   });
 
   it("persists chats and restores them after remount", async () => {
