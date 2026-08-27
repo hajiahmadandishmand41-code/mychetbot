@@ -84,7 +84,7 @@ def test_web_search_is_auto_selectable_by_default():
 
 
 @pytest.mark.asyncio
-async def test_nara_provider_uses_minimal_payload(monkeypatch):
+async def test_nara_provider_uses_expected_payload(monkeypatch):
     provider = NaraProvider()
     captured = {}
 
@@ -98,4 +98,6 @@ async def test_nara_provider_uses_minimal_payload(monkeypatch):
     assert captured["payload"] == {
         "model": "agnes-2.0-flash",
         "messages": [{"role": "user", "content": "سلام"}],
+        "temperature": 0.7,
+        "max_tokens": 4096,
     }
