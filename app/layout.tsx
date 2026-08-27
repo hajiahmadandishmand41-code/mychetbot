@@ -3,9 +3,9 @@ import "./globals.css";
 import "./mobile.css";
 
 export const metadata: Metadata = {
-  title: "سپنتا",
-  description: "دستیار هوش مصنوعی یکپارچه سپنتا",
-  applicationName: "سپنتا",
+  title: "هوشمند",
+  description: "دستیار هوش مصنوعی هوشمند",
+  applicationName: "هوشمند",
 };
 
 export const viewport: Viewport = {
