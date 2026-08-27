@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import html
 import json
 import time
@@ -15,6 +16,7 @@ from tools.web_research import _extract, _fetch, _validate_url
 
 MAX_RESULTS = 5
 MAX_QUERY_CHARS = 500
+MAX_RESEARCH_PAGES = 3
 
 
 class _SearchParser(HTMLParser):
@@ -82,16 +84,45 @@ def _search_engine(query: str) -> list[dict[str, str]]:
     return cleaned[:MAX_RESULTS]
 
 
+def _research_one(item: dict[str, str]) -> dict[str, Any]:
+    try:
+        body, status, final_url, size, content_type = _fetch(item["url"])
+        extracted = _extract(final_url, body, content_type)
+        return {
+            "search_result": item,
+            "page": {
+                "url": final_url,
+                "title": extracted["title"],
+                "text": extracted["text"][:20_000],
+                "metadata": extracted["metadata"],
+                "links": extracted["links"][:20],
+                "extracted_data": extracted["extracted_data"],
+                "source_status": status,
+                "response_bytes": size,
+            },
+        }
+    except (ValueError, TimeoutError, ConnectionError, httpx.HTTPError) as exc:
+        return {
+            "search_result": item,
+            "page": {
+                "url": item["url"],
+                "source_status": "unavailable",
+                "warning": redact(str(exc)),
+            },
+        }
+
+
 def _research_query(query: str) -> dict[str, Any]:
     results = _search_engine(query)
-    researched: list[dict[str, Any]] = []
-    for item in results[:3]:
-        try:
-            body, status, final_url, size, content_type = _fetch(item["url"])
-            extracted = _extract(final_url, body, content_type)
-            researched.append({"search_result": item, "page": {"url": final_url, "title": extracted["title"], "text": extracted["text"][:20_000], "metadata": extracted["metadata"], "links": extracted["links"][:20], "extracted_data": extracted["extracted_data"], "source_status": status, "response_bytes": size}})
-        except (ValueError, TimeoutError, ConnectionError, httpx.HTTPError) as exc:
-            researched.append({"search_result": item, "page": {"url": item["url"], "source_status": "unavailable", "warning": redact(str(exc))}})
+    targets = results[:MAX_RESEARCH_PAGES]
+    if not targets:
+        return {"query": redact(query), "results": []}
+
+    # Public pages are independent I/O operations. Fetch them concurrently so
+    # one slow site does not serialize the complete research response.
+    max_workers = min(len(targets), MAX_RESEARCH_PAGES)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="web-research") as executor:
+        researched = list(executor.map(_research_one, targets))
     return {"query": redact(query), "results": researched}
 
 
