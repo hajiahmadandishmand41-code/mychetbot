@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { validateMessage, validateSessionId } from "@/lib/validation";
@@ -5,6 +6,7 @@ import { validateMessage, validateSessionId } from "@/lib/validation";
 const SESSION_COOKIE = "mychatbot_session";
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 30;
+const SESSION_SIGNATURE_BYTES = 12;
 const hits = new Map<string, number[]>();
 
 export function backendConfig() {
@@ -13,14 +15,39 @@ export function backendConfig() {
   return { baseUrl, token };
 }
 
+function sessionSigningKey() {
+  const { token } = backendConfig();
+  return token ? `mychatbot-web-session:${token}` : "";
+}
+
+function signSessionId(rawSessionId: string) {
+  const key = sessionSigningKey();
+  if (!key) return "";
+  return createHmac("sha256", key).update(rawSessionId, "utf8").digest("hex").slice(0, SESSION_SIGNATURE_BYTES * 2);
+}
+
 export function newSessionId() {
-  return crypto.randomUUID();
+  const raw = crypto.randomUUID().replace(/-/g, "");
+  const signature = signSessionId(raw);
+  return signature ? `${raw}-${signature}` : raw;
+}
+
+export function isSignedSessionId(value: string | null | undefined) {
+  if (!validateSessionId(value)) return false;
+  const separator = value.lastIndexOf("-");
+  if (separator <= 0) return false;
+  const raw = value.slice(0, separator);
+  const signature = value.slice(separator + 1);
+  if (!/^[a-f0-9]{32}$/i.test(raw) || !/^[a-f0-9]{24}$/i.test(signature)) return false;
+  const expected = signSessionId(raw);
+  if (!expected || expected.length !== signature.length) return false;
+  return timingSafeEqual(Buffer.from(signature, "utf8"), Buffer.from(expected, "utf8"));
 }
 
 export async function currentSessionId() {
   const store = await cookies();
   const value = store.get(SESSION_COOKIE)?.value;
-  return validateSessionId(value) ? value : null;
+  return isSignedSessionId(value) ? value : null;
 }
 
 export function sessionCookieHeader(sessionId: string) {
@@ -36,7 +63,7 @@ export function setSessionResponse(body: unknown, sessionId: string, status = 20
 
 export function checkSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  if (!origin) return true;
+  if (!origin) return false;
   try {
     const expectedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
     if (!expectedHost) return false;
@@ -86,6 +113,13 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   let target: URL;
   try {
     target = new URL(path, `${baseUrl}/`);
+    const allowedPaths = new Set(["/chat", "/history/", "/memory/"]);
+    if (![...allowedPaths].some((allowed) => target.pathname === allowed || target.pathname.startsWith(allowed))) {
+      return NextResponse.json(
+        { error: "backend_path_not_allowed", message: "مسیر Backend موردنظر مجاز نیست." },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
   } catch {
     return NextResponse.json(
       { error: "backend_configuration_error", message: "نشانی Backend معتبر نیست." },
