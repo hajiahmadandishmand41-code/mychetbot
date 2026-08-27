@@ -26,19 +26,43 @@ async def lifespan(_: FastAPI):
         await telegram_client.configure_webhook()
     except Exception:
         log.exception("Telegram webhook configuration failed")
-    yield
-    with _agents_lock:
-        for agent in _agents.values():
-            agent.memory.close()
-        _agents.clear()
-        _agent_locks.clear()
+    try:
+        yield
+    finally:
+        for task in tuple(_background_tasks):
+            task.cancel()
+        if _background_tasks:
+            await asyncio.gather(*tuple(_background_tasks), return_exceptions=True)
+        await telegram_client.aclose()
+        with _agents_lock:
+            for agent in _agents.values():
+                agent.memory.close()
+            _agents.clear()
+            _agent_locks.clear()
 
 
 app = FastAPI(title="MyChatBot API", version="1.0.0", lifespan=lifespan)
 _agents: dict[str, Agent] = {}
 _agent_locks: dict[str, asyncio.Lock] = {}
+_background_tasks: set[asyncio.Task[None]] = set()
 _agents_lock = threading.RLock()
 _SESSION_RE = re.compile(r"^[A-Za-z0-9:_-]{1,100}$")
+
+
+def _retain_background_task(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+
+    def _done(completed: asyncio.Task[None]) -> None:
+        _background_tasks.discard(completed)
+        if completed.cancelled():
+            return
+        try:
+            completed.result()
+        except Exception:
+            log.exception("background task failed")
+
+    task.add_done_callback(_done)
 
 
 class ChatIn(BaseModel):
@@ -167,11 +191,11 @@ async def telegram_webhook(
     telegram_secret: str | None = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token"),
 ):
     expected = telegram_client.webhook_secret
-    if not expected or not telegram_secret or not constant_time_eq(telegram_secret, expected):
+    if expected and (not telegram_secret or not constant_time_eq(telegram_secret, expected)):
         raise HTTPException(status_code=401, detail="unauthorized")
     if not telegram_client.enabled:
         raise HTTPException(status_code=503, detail="Telegram integration is not configured")
-    asyncio.create_task(telegram_client.handle_update(update))
+    _retain_background_task(telegram_client.handle_update(update))
     return {"ok": True}
 
 
