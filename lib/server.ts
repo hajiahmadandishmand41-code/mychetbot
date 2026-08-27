@@ -11,11 +11,11 @@ const hits = new Map<string, number[]>();
 
 export function backendConfig() {
   const baseUrl = (process.env.MYCHATBOT_API_URL ?? "").trim().replace(/\/+$/, "");
-  const providerToken = (process.env.NARA_API_KEY ?? "").trim();
-  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
-  // During the migration, prefer the already-configured provider credential so an old
-  // stale MYCHATBOT_API_TOKEN cannot cause a 401 between Web and the backend bridge.
-  const token = providerToken || dedicatedToken;
+  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? process.env.API_TOKEN ?? "").trim();
+  const legacyProviderToken = (process.env.NARA_API_KEY ?? "").trim();
+  // Prefer the actual backend credential. Keep the provider key only as a
+  // last-resort compatibility path for older deployments during migration.
+  const token = dedicatedToken || legacyProviderToken;
   return { baseUrl, token };
 }
 
@@ -112,7 +112,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "اتصال Backend آماده نیست: MYCHATBOT_API_URL و NARA_API_KEY (یا MYCHATBOT_API_TOKEN) باید در محیط Web تنظیم شوند.",
+        message: "اتصال Backend آماده نیست: MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN (یا API_TOKEN) باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
@@ -124,7 +124,6 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     base = new URL(`${baseUrl}/`);
     target = new URL(path.startsWith("/") ? path : `/${path}`, base);
 
-    // Never allow a path value to change the configured backend origin.
     if (target.origin !== base.origin) {
       return NextResponse.json(
         { error: "backend_origin_not_allowed", message: "نشانی Backend موردنظر مجاز نیست." },
