@@ -11,9 +11,11 @@ const hits = new Map<string, number[]>();
 
 export function backendConfig() {
   const baseUrl = (process.env.MYCHATBOT_API_URL ?? "").trim().replace(/\/+$/, "");
-  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
   const providerToken = (process.env.NARA_API_KEY ?? "").trim();
-  const token = dedicatedToken || providerToken;
+  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
+  // During the migration, prefer the already-configured provider credential so an old
+  // stale MYCHATBOT_API_TOKEN cannot cause a 401 between Vercel and the Render bridge.
+  const token = providerToken || dedicatedToken;
   return { baseUrl, token };
 }
 
@@ -108,7 +110,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و یکی از MYCHATBOT_API_TOKEN یا NARA_API_KEY باید در محیط Web تنظیم شوند.",
+        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و NARA_API_KEY (یا MYCHATBOT_API_TOKEN) باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
