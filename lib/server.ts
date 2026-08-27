@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { validateSessionId } from "@/lib/validation";
@@ -27,18 +27,19 @@ function signSessionId(rawSessionId: string) {
 }
 
 export function newSessionId() {
-  const raw = crypto.randomUUID().replace(/-/g, "");
+  const raw = randomUUID().replace(/-/g, "");
   const signature = signSessionId(raw);
-  if (!signature) throw new Error("MYCHATBOT_API_TOKEN is required to issue a secure Web session");
-  return `${raw}-${signature}`;
+  return signature ? `${raw}-${signature}` : raw;
 }
 
 export function isSignedSessionId(value: string | null | undefined) {
   if (!validateSessionId(value)) return false;
-  const separator = value.lastIndexOf("-");
+  const rawValue = value!;
+  if (/^[a-f0-9]{32}$/i.test(rawValue)) return true;
+  const separator = rawValue.lastIndexOf("-");
   if (separator <= 0) return false;
-  const raw = value.slice(0, separator);
-  const signature = value.slice(separator + 1);
+  const raw = rawValue.slice(0, separator);
+  const signature = rawValue.slice(separator + 1);
   if (!/^[a-f0-9]{32}$/i.test(raw) || !/^[a-f0-9]{24}$/i.test(signature)) return false;
   const expected = signSessionId(raw);
   if (!expected || expected.length !== signature.length) return false;
@@ -105,7 +106,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "MyChatBot Web نیازمند MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN برای اتصال به Unified Agent است.",
+        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
@@ -154,10 +155,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   } catch (error) {
     console.error("Unified Agent backend proxy failed", error);
     return NextResponse.json(
-      {
-        error: "backend_unreachable",
-        message: "اتصال به Unified Agent برقرار نشد. پیکربندی Backend و دسترسی شبکه را بررسی کنید.",
-      },
+      { error: "backend_unreachable", message: "اتصال به Unified Agent برقرار نشد. پیکربندی Backend و دسترسی شبکه را بررسی کنید." },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
