@@ -23,7 +23,6 @@ class BaseProvider:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(connect=8.0, read=45.0, write=10.0, pool=5.0),
                 limits=httpx.Limits(max_connections=40, max_keepalive_connections=20, keepalive_expiry=30.0),
-                http2=True,
             )
             self._client_loop = loop
         return self._client
