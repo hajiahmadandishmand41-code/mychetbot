@@ -26,6 +26,10 @@ describe("MyChatBot web chat", () => {
       configurable: true,
       value: () => ({ matches: false, media: "", onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() }),
     });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
     vi.restoreAllMocks();
   });
 
@@ -34,7 +38,7 @@ describe("MyChatBot web chat", () => {
     render(<ChatShell />);
     expect(await screen.findByText("سلام! 👋")).toBeTruthy();
     expect(screen.getByPlaceholderText("پیام خود را بنویسید…")).toBeTruthy();
-    expect(screen.getByText("من MyChatBot هستم.")).toBeTruthy();
+    expect(screen.getByText(/من MyChatBot هستم\./)).toBeTruthy();
   });
 
   it("sends a real request through /api/chat and renders markdown/code", async () => {
