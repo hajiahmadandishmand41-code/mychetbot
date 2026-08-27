@@ -1,5 +1,5 @@
-import ChatShell from "@/components/chat-shell";
+import SmartChat from "@/components/smart-chat";
 
 export default function HomePage() {
-  return <ChatShell />;
+  return <SmartChat />;
 }
