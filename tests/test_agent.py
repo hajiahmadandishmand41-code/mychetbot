@@ -89,14 +89,15 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
             return {"content": '{"tool":"wifi_info","args":{}}'}
         return {"content": "وضعیت اتصال دریافت شد."}
 
-    def fake_tool(name, args, profile="local"):
+    def fake_tool(name, args, profile="local", session="default"):
         assert name == "wifi_info"
         assert args == {}
         assert profile == "device"
+        assert session == "tool-user"
         return '{"status":"ok","ssid":"TestWiFi","security":"WPA2"}'
 
     monkeypatch.setattr(a.router, "complete", fake)
-    monkeypatch.setattr("core.agent.run_tool", fake_tool)
+    monkeypatch.setattr("core.agent_impl.run_tool", fake_tool)
     await a.ask("وضعیت Wi-Fi فعلی را بررسی کن")
     assert any(m["role"] == "tool" and "TestWiFi" in m["content"] for m in a.memory.history("tool-user"))
     final_system = calls[-1][0]["content"]

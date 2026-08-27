@@ -18,3 +18,7 @@ android/app/build/
 local.properties
 *.log
 *.key
+node_modules/
+.next/
+.turbo/
+coverage/

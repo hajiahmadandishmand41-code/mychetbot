@@ -4,8 +4,8 @@ import pytest
 
 from core.agent import Agent
 from core.config import config
-from providers.nara_provider import NaraProvider
 from interfaces.telegram import TelegramClient
+from providers.nara_provider import NaraProvider
 
 
 @pytest.fixture
@@ -15,13 +15,14 @@ def isolated_memory(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_creator_identity_uses_afkaran_and_key_topics(isolated_memory):
+async def test_creator_identity_uses_requested_team_and_key_topics(isolated_memory):
     agent = Agent(session="creator")
     answer = await agent.ask("سازنده و تیم شما کیست؟")
     assert "حاجی احمد صالحی" in answer
-    assert "افکاران" in answer
+    assert "تیم ربات‌های سازنده @فکر کن" in answer
+    assert "افکاران" not in answer
     for topic in ("Web Research", "Memory", "Telegram/API", "Android/Termux", "Wi‑Fi", "Server/Render"):
-        assert topic in answer
+        assert topic in answer or topic.replace("‑", "-") in answer
     agent.memory.close()
 
 
