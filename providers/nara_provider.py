@@ -12,7 +12,14 @@ class NaraProvider(BaseProvider):
 
     @staticmethod
     def _needs_model_fallback(error: ProviderError) -> bool:
-        return error.code in {"model_or_request_invalid", "forbidden_model"}
+        # A model-specific incompatibility or a transient model/tier outage
+        # should move to the next configured model rather than fail the chat.
+        return error.code in {
+            "model_or_request_invalid",
+            "forbidden_model",
+            "http_5xx",
+            "rate_limit",
+        }
 
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
         selected_model = (model or config.default_model).strip()
@@ -24,6 +31,9 @@ class NaraProvider(BaseProvider):
             candidate = candidate.strip()
             if candidate and candidate not in models:
                 models.append(candidate)
+
+        if not models:
+            raise ValueError("No Nara models are configured")
 
         headers = {
             "Authorization": f"Bearer {config.nara_key}",
@@ -40,8 +50,9 @@ class NaraProvider(BaseProvider):
                     {
                         "model": selected,
                         "messages": messages,
-                        "temperature": 0.7,
-                        "max_tokens": 4096,
+                        "temperature": kw.get("temperature", 0.7),
+                        "max_tokens": kw.get("max_tokens", 4096),
+                        "reasoning_effort": kw.get("reasoning_effort", "medium"),
                     },
                 )
                 try:
@@ -55,8 +66,8 @@ class NaraProvider(BaseProvider):
                 last_error = exc
                 if not self._needs_model_fallback(exc) or index >= len(models) - 1:
                     raise
-                # No delay here: the failed model is a deterministic compatibility
-                # problem, so switching immediately keeps normal chat fast.
+                # Move immediately to another model/tier. BaseProvider already
+                # performs bounded retries for transient transport/gateway errors.
                 await asyncio.sleep(0)
 
         raise last_error or ProviderError(self.name, "http_error", "provider request failed")
