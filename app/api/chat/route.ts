@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  allowRate,
   checkSameOrigin,
   currentSessionId,
   proxyBackend,
+  requestRateKey,
+  allowRate,
   validateMessage,
 } from "@/lib/server";
 
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: "session_required", message: "نشست معتبر پیدا نشد؛ صفحه را تازه‌سازی کنید." }, { status: 401 });
   }
-  if (!allowRate(`web:${sessionId}`)) {
+  if (!allowRate(await requestRateKey(sessionId))) {
     return NextResponse.json({ error: "rate_limit", message: "تعداد درخواست‌ها زیاد است. کمی بعد دوباره تلاش کنید." }, { status: 429 });
   }
 
