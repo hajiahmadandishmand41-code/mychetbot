@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { validateMessage, validateSessionId } from "@/lib/validation";
+import { validateSessionId } from "@/lib/validation";
 
 const SESSION_COOKIE = "mychatbot_session";
 const RATE_WINDOW_MS = 60_000;
