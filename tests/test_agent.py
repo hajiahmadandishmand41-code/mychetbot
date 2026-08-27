@@ -89,10 +89,11 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
             return {"content": '{"tool":"wifi_info","args":{}}'}
         return {"content": "وضعیت اتصال دریافت شد."}
 
-    def fake_tool(name, args, profile="local"):
+    def fake_tool(name, args, profile="local", session="default"):
         assert name == "wifi_info"
         assert args == {}
         assert profile == "device"
+        assert session == "tool-user"
         return '{"status":"ok","ssid":"TestWiFi","security":"WPA2"}'
 
     monkeypatch.setattr(a.router, "complete", fake)
