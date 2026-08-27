@@ -14,8 +14,8 @@ function cleanMessages(messages: unknown): WebChatMessage[] {
   if (!Array.isArray(messages)) return [];
   return messages
     .filter((item): item is { role: unknown; content: unknown } => !!item && typeof item === "object")
-    .map((item) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
+    .map((item): WebChatMessage => ({
+      role: item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user",
       content: typeof item.content === "string" ? item.content.trim().slice(0, MAX_MESSAGE_CHARS) : "",
     }))
     .filter((item) => item.content)
