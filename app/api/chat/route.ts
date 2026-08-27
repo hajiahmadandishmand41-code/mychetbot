@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  allowRate,
   checkSameOrigin,
   currentSessionId,
   proxyBackend,
   requestRateKey,
-  allowRate,
   validateMessage,
 } from "@/lib/server";
 
