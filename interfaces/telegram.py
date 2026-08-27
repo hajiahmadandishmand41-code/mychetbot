@@ -27,7 +27,7 @@ class TelegramClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.token and self.webhook_url and self.webhook_secret)
+        return bool(self.token and self.webhook_url)
 
     def _agent(self, session: str) -> Agent:
         agent = self._agents.get(session)
@@ -42,10 +42,10 @@ class TelegramClient:
     def _get_client(self) -> httpx.AsyncClient:
         loop = asyncio.get_running_loop()
         if self._client is None or self._client.is_closed or self._client_loop is not loop:
+            # Keep the dependency set minimal: http2 support would require the optional h2 package.
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0),
                 limits=httpx.Limits(max_connections=40, max_keepalive_connections=20, keepalive_expiry=30.0),
-                http2=True,
             )
             self._client_loop = loop
         return self._client
@@ -73,19 +73,20 @@ class TelegramClient:
 
     async def configure_webhook(self) -> None:
         if not self.enabled:
-            log.info("Telegram integration disabled: required environment variables are missing")
+            log.info("Telegram integration disabled: TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL is missing")
             return
         await self._call("getMe", {})
         webhook = self.webhook_url.rstrip("/") + "/telegram/webhook"
-        await self._call(
-            "setWebhook",
-            {
-                "url": webhook,
-                "secret_token": self.webhook_secret,
-                "allowed_updates": ["message"],
-                "drop_pending_updates": False,
-            },
-        )
+        payload: dict[str, Any] = {
+            "url": webhook,
+            "allowed_updates": ["message"],
+            "drop_pending_updates": False,
+        }
+        # Secret validation is optional. When absent, sendWebhook removes any old Telegram secret,
+        # preventing stale-secret 401s after a deployment reset.
+        if self.webhook_secret:
+            payload["secret_token"] = self.webhook_secret
+        await self._call("setWebhook", payload)
 
     async def handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message")
@@ -106,7 +107,6 @@ class TelegramClient:
         session = f"telegram:{chat_id}"
         async with self._lock(session):
             try:
-                # Give Telegram immediate UI feedback while the model works.
                 await self._call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
                 answer = await self._agent(session).ask(text.strip())
             except Exception:
