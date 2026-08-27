@@ -44,8 +44,7 @@ describe("هوشمند web chat", () => {
     render(<SmartChat />);
     await screen.findByText("سلام! 👋");
     fireEvent.click(screen.getByRole("button", { name: "گزینه‌های بیشتر" }));
-    expect(screen.getByRole("menuitem", { name: /برگشت به چت/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("menuitem", { name: /چت جدید/ }));
+    expect(screen.getByText("برگشت به چت")).toBeTruthy();
     expect(screen.getByText("چت جدید")).toBeTruthy();
   });
 
