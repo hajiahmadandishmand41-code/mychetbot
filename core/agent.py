@@ -19,8 +19,6 @@ _NAME_QUERY = re.compile(
     re.I,
 )
 
-# Canonical user-facing identity. The internal implementation is kept intact;
-# this facade prevents stale provider/team wording from leaking to users.
 TEAM_IDENTITY = "تیم ربات‌های سازنده @فکر کن"
 SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT.replace("تیم سازنده: افکاران", f"تیم سازنده: {TEAM_IDENTITY}")
 
@@ -44,7 +42,11 @@ class Agent(_Agent):
         if response is None:
             return None
         if "سازنده MyChatBot" in response:
-            return f"سازنده MyChatBot حاجی احمد صالحی است و تیم سازنده آن {TEAM_IDENTITY} است."
+            return (
+                "سازنده MyChatBot حاجی احمد صالحی است و تیم سازنده آن "
+                f"{TEAM_IDENTITY} است. موضوعات کلیدی پروژه شامل هوش مصنوعی گفت‌وگویی یکپارچه، "
+                "Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی و Server/Render diagnostics و امنیت است."
+            )
         return response
 
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
