@@ -11,11 +11,9 @@ const hits = new Map<string, number[]>();
 
 export function backendConfig() {
   const baseUrl = (process.env.MYCHATBOT_API_URL ?? "").trim().replace(/\/+$/, "");
-  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? process.env.API_TOKEN ?? "").trim();
-  const legacyProviderToken = (process.env.NARA_API_KEY ?? "").trim();
-  // Prefer the actual backend credential. Keep the provider key only as a
-  // last-resort compatibility path for older deployments during migration.
-  const token = dedicatedToken || legacyProviderToken;
+  // Web must authenticate to the Unified Agent with the backend API token.
+  // Never use NARA_API_KEY here: that credential belongs only to the backend/provider.
+  const token = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
   return { baseUrl, token };
 }
 
@@ -39,7 +37,6 @@ export function newSessionId() {
 export function isSignedSessionId(value: string | null | undefined) {
   if (!validateSessionId(value)) return false;
   const rawValue = value!;
-  // Legacy unsigned sessions are accepted only for compatibility with old clients.
   if (/^[a-f0-9]{32}$/i.test(rawValue)) return true;
   const separator = rawValue.lastIndexOf("-");
   if (separator <= 0) return false;
@@ -112,7 +109,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "اتصال Backend آماده نیست: MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN (یا API_TOKEN) باید در محیط Web تنظیم شوند.",
+        message: "اتصال Backend آماده نیست: MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
@@ -172,7 +169,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   } catch (error) {
     console.error("Unified Agent backend proxy failed", error);
     return NextResponse.json(
-      { error: "backend_unreachable", message: "اتصال به Unified Agent برقرار نشد. پیکربندی Backend و دسترسی شبکه را بررسی کنید." },
+      { error: "backend_unreachable", message: "اتصال به Unified Agent برقرار نشد. MYCHATBOT_API_URL و دسترسی شبکه را بررسی کنید." },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
