@@ -29,7 +29,8 @@ function signSessionId(rawSessionId: string) {
 export function newSessionId() {
   const raw = crypto.randomUUID().replace(/-/g, "");
   const signature = signSessionId(raw);
-  return signature ? `${raw}-${signature}` : raw;
+  if (!signature) throw new Error("MYCHATBOT_API_TOKEN is required to issue a secure Web session");
+  return `${raw}-${signature}`;
 }
 
 export function isSignedSessionId(value: string | null | undefined) {
@@ -113,8 +114,8 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   let target: URL;
   try {
     target = new URL(path, `${baseUrl}/`);
-    const allowedPaths = new Set(["/chat", "/history/", "/memory/"]);
-    if (![...allowedPaths].some((allowed) => target.pathname === allowed || target.pathname.startsWith(allowed))) {
+    const allowedPaths = ["/chat", "/history/", "/memory/"];
+    if (!allowedPaths.some((allowed) => target.pathname === allowed || target.pathname.startsWith(allowed))) {
       return NextResponse.json(
         { error: "backend_path_not_allowed", message: "مسیر Backend موردنظر مجاز نیست." },
         { status: 400, headers: { "Cache-Control": "no-store" } },
@@ -127,15 +128,15 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     );
   }
 
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  headers.set("Accept", "application/json");
-  if (init.body) headers.set("Content-Type", "application/json");
+  const requestHeaders = new Headers(init.headers);
+  requestHeaders.set("Authorization", `Bearer ${token}`);
+  requestHeaders.set("Accept", "application/json");
+  if (init.body) requestHeaders.set("Content-Type", "application/json");
 
   try {
     const response = await fetch(target, {
       ...init,
-      headers,
+      headers: requestHeaders,
       cache: "no-store",
       signal: AbortSignal.timeout(65_000),
     });
