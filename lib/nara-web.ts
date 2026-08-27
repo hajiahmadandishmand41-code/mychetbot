@@ -4,22 +4,35 @@ const NARA_BASE_URL = "https://router.bynara.id/v1";
 const NARA_MODEL = "auto/bynara";
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 12_000;
+const MAX_TOTAL_MESSAGE_CHARS = 24_000;
 
 export type WebChatMessage = {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant";
   content: string;
 };
 
 function cleanMessages(messages: unknown): WebChatMessage[] {
   if (!Array.isArray(messages)) return [];
-  return messages
-    .filter((item): item is { role: unknown; content: unknown } => !!item && typeof item === "object")
-    .map((item): WebChatMessage => ({
-      role: item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user",
-      content: typeof item.content === "string" ? item.content.trim().slice(0, MAX_MESSAGE_CHARS) : "",
-    }))
-    .filter((item) => item.content)
-    .slice(-MAX_MESSAGES);
+
+  const cleaned: WebChatMessage[] = [];
+  let totalChars = 0;
+  const items = messages.slice(-MAX_MESSAGES).reverse();
+
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as { role?: unknown; content?: unknown };
+    if (candidate.role !== "user" && candidate.role !== "assistant") continue;
+    if (typeof candidate.content !== "string") continue;
+
+    const content = candidate.content.trim().slice(0, MAX_MESSAGE_CHARS);
+    if (!content) continue;
+    if (totalChars + content.length > MAX_TOTAL_MESSAGE_CHARS) break;
+
+    cleaned.push({ role: candidate.role, content });
+    totalChars += content.length;
+  }
+
+  return cleaned.reverse();
 }
 
 export async function directNaraChat(messages: unknown) {
@@ -39,8 +52,8 @@ export async function directNaraChat(messages: unknown) {
     );
   }
 
-  const system: WebChatMessage = {
-    role: "system",
+  const system = {
+    role: "system" as const,
     content:
       "تو «هوشمند» هستی؛ یک دستیار هوش مصنوعی واحد و حرفه‌ای. سازنده: حاجی احمد صالحی. تیم سازنده: تیم ربات‌های سازنده @فکر کن. درباره خودت با نام هوشمند صحبت کن و Provider یا مدل پشت‌صحنه را به‌عنوان هویت خود معرفی نکن. پاسخ‌ها را دقیق، مفید و به زبان کاربر بده. اگر برای یک کار نیاز به ابزار یا محیطی داری که در Web در دسترس نیست، صادقانه محدودیت را بگو و هرگز نتیجه جعلی نساز.",
   };
@@ -97,7 +110,7 @@ export async function directNaraChat(messages: unknown) {
     }
 
     return NextResponse.json(
-      { reply: content.trim(), model: NARA_MODEL },
+      { reply: content.trim() },
       { status: 200, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
