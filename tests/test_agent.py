@@ -27,7 +27,7 @@ async def test_agent_plain_reply(monkeypatch, isolated_memory):
 
     monkeypatch.setattr(a.router, "complete", fake)
     assert await a.ask("سلام") == "پاسخ تستی"
-    assert calls == 2
+    assert calls == 1
     assert a.memory.history("t")[-1].content == "پاسخ تستی"
     a.memory.close()
 
