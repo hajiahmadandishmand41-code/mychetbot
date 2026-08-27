@@ -5,13 +5,14 @@ stable public hooks for legacy callers/tests and normalizes user-facing
 identity for every interface without duplicating orchestration logic.
 """
 
+import json
 import re
 from typing import Any
 
 from core.agent_impl import SYSTEM_PROMPT as _BASE_SYSTEM_PROMPT
 from core.agent_impl import TOOL_PLANNER_PROMPT
 from core.agent_impl import Agent as _Agent
-from tools.registry import run_tool
+from tools.registry import TOOLS, run_tool
 
 _NAME_QUERY = re.compile(
     r"(?:اسم|نام)\s*(?:من\s*)?(?:چی|چه|کدام|کدوم)\s*(?:بود|هست|است)?\s*[؟?]?$"
@@ -51,12 +52,7 @@ class Agent(_Agent):
 
     @staticmethod
     def _needs_tool_planner(text: str) -> bool:
-        """Avoid a second model call for ordinary conversation.
-
-        Tool planning is only worthwhile when the user's wording clearly asks
-        for live data, diagnostics, a URL/page analysis, or another tool-like
-        operation. This preserves tool support while keeping normal chat fast.
-        """
+        """Use the planner only when intent is not already unambiguous locally."""
         lowered = text.lower().strip()
         if not lowered:
             return False
@@ -69,14 +65,56 @@ class Agent(_Agent):
         )
         return any(signal in lowered for signal in signals)
 
+    @staticmethod
+    def _fast_tool_plan(text: str) -> dict[str, Any] | None:
+        """Choose safe, obvious tools without an extra LLM round-trip."""
+        lowered = text.lower().strip()
+        if not lowered:
+            return None
+
+        urls = re.findall(r"https?://\S+", text)
+        if len(urls) == 1:
+            return {"tool": "web_research", "args": {"url": urls[0].rstrip(".,!?)]}")}}
+        if 2 <= len(urls) <= 5:
+            return {"tool": "web_compare", "args": {"urls_json": json.dumps(urls, ensure_ascii=False)}}
+
+        search_markers = (
+            "آخرین", "جدیدترین", "اخبار", "قیمت", "تحقیق", "جستجو", "پیدا کن",
+            "روی وب", "از وب", "اطلاعات فعلی", "وضعیت فعلی",
+        )
+        if any(marker in lowered for marker in search_markers):
+            return {"tool": "web_search", "args": {"query": text}}
+
+        exact_tools = (
+            (("وضعیت وای فای", "اطلاعات وای فای", "wifi info", "wi-fi info"), "wifi_info"),
+            (("شبکه‌های اطراف", "شبکه های اطراف", "اسکن وای فای", "wifi scan"), "wifi_scan"),
+            (("تشخیص اتصال", "تشخیص اینترنت", "wifi diagnostics"), "wifi_diagnostics"),
+            (("گزارش امنیتی وای فای", "wifi security"), "wifi_security_report"),
+            (("وضعیت باتری", "battery"), "battery"),
+            (("آی‌پی محلی", "ip محلی", "local ip"), "local_ip"),
+        )
+        for markers, tool in exact_tools:
+            if any(marker in lowered for marker in markers):
+                return {"tool": tool, "args": {}}
+        return None
+
     async def _plan_tool(self, text: str) -> dict[str, Any] | None:
+        fast_plan = self._fast_tool_plan(text)
+        if fast_plan:
+            tool = fast_plan["tool"]
+            meta = TOOLS.get(tool)
+            if meta and meta.available_in(self._tool_profile()) and not meta.dangerous and meta.auto_selectable:
+                if not (set(fast_plan["args"]) - set(meta.args)):
+                    return fast_plan
         if not self._needs_tool_planner(text):
             return None
         return await super()._plan_tool(text)
 
+    def _tool_profile(self) -> str:
+        from core.config import config
+        return config.tool_profile
+
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
-        # Delegate to canonical implementation so profile/session/resource
-        # policy remains identical across Telegram, API, CLI and Web.
         return await super()._run_internal_tool(plan)
 
 
