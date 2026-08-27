@@ -11,7 +11,9 @@ const hits = new Map<string, number[]>();
 
 export function backendConfig() {
   const baseUrl = (process.env.MYCHATBOT_API_URL ?? "").trim().replace(/\/+$/, "");
-  const token = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
+  const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
+  const providerToken = (process.env.NARA_API_KEY ?? "").trim();
+  const token = dedicatedToken || providerToken;
   return { baseUrl, token };
 }
 
@@ -106,7 +108,7 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN باید در محیط Web تنظیم شوند.",
+        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و یکی از MYCHATBOT_API_TOKEN یا NARA_API_KEY باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
