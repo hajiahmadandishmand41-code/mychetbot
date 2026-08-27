@@ -14,7 +14,7 @@ export function backendConfig() {
   const providerToken = (process.env.NARA_API_KEY ?? "").trim();
   const dedicatedToken = (process.env.MYCHATBOT_API_TOKEN ?? "").trim();
   // During the migration, prefer the already-configured provider credential so an old
-  // stale MYCHATBOT_API_TOKEN cannot cause a 401 between Vercel and the Render bridge.
+  // stale MYCHATBOT_API_TOKEN cannot cause a 401 between Web and the backend bridge.
   const token = providerToken || dedicatedToken;
   return { baseUrl, token };
 }
@@ -39,6 +39,7 @@ export function newSessionId() {
 export function isSignedSessionId(value: string | null | undefined) {
   if (!validateSessionId(value)) return false;
   const rawValue = value!;
+  // Legacy unsigned sessions are accepted only for compatibility with old clients.
   if (/^[a-f0-9]{32}$/i.test(rawValue)) return true;
   const separator = rawValue.lastIndexOf("-");
   if (separator <= 0) return false;
@@ -71,9 +72,10 @@ export function checkSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin) return false;
   try {
-    const expectedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-    if (!expectedHost) return false;
-    return new URL(origin).host === expectedHost;
+    const expectedHost = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").trim().toLowerCase();
+    const originUrl = new URL(origin);
+    if (!expectedHost || !originUrl.host.toLowerCase()) return false;
+    return originUrl.host.toLowerCase() === expectedHost;
   } catch {
     return false;
   }
@@ -110,17 +112,29 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     return NextResponse.json(
       {
         error: "backend_not_configured",
-        message: "اتصال هوش مصنوعی آماده نیست: MYCHATBOT_API_URL و NARA_API_KEY (یا MYCHATBOT_API_TOKEN) باید در محیط Web تنظیم شوند.",
+        message: "اتصال Backend آماده نیست: MYCHATBOT_API_URL و NARA_API_KEY (یا MYCHATBOT_API_TOKEN) باید در محیط Web تنظیم شوند.",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   let target: URL;
+  let base: URL;
   try {
-    target = new URL(path, `${baseUrl}/`);
-    const allowedPaths = ["/chat", "/history/", "/memory/"];
-    if (!allowedPaths.some((allowed) => target.pathname === allowed || target.pathname.startsWith(allowed))) {
+    base = new URL(`${baseUrl}/`);
+    target = new URL(path.startsWith("/") ? path : `/${path}`, base);
+
+    // Never allow a path value to change the configured backend origin.
+    if (target.origin !== base.origin) {
+      return NextResponse.json(
+        { error: "backend_origin_not_allowed", message: "نشانی Backend موردنظر مجاز نیست." },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    const pathname = target.pathname.replace(/\/+$/, "") || "/";
+    const allowedRoots = ["/chat", "/history", "/memory"];
+    if (!allowedRoots.some((allowed) => pathname === allowed || pathname.startsWith(`${allowed}/`))) {
       return NextResponse.json(
         { error: "backend_path_not_allowed", message: "مسیر Backend موردنظر مجاز نیست." },
         { status: 400, headers: { "Cache-Control": "no-store" } },

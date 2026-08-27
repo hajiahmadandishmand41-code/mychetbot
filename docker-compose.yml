@@ -4,19 +4,27 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      NARA_API_KEY: ${NARA_API_KEY:-}
+      NARA_BASE_URL: ${NARA_BASE_URL:-https://router.bynara.id/v1}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-agnes-2.0-flash}
+      API_TOKEN: ${API_TOKEN:-}
+      MYCHATBOT_MASTER_KEY: ${MYCHATBOT_MASTER_KEY:-}
+      TOOL_PROFILE: server
+      API_TOOL_PROFILE: server
     ports:
       - "127.0.0.1:${API_PORT:-8765}:8765"
     volumes:
       - mychatbot-data:/data
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=64m
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=3); raise SystemExit(0 if r.status == 200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
