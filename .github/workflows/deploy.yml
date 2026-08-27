@@ -105,21 +105,34 @@ jobs:
           docker push "$IMAGE_REF"
           docker push "$IMAGE_MAIN"
 
-      - name: Validate deployment secrets
+      - name: Check VPS deployment configuration
+        id: vps
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
           VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        shell: bash
         run: |
-          test -n "$VPS_HOST"
-          test -n "$VPS_USER"
-          test -n "$VPS_SSH_PRIVATE_KEY"
-          test -n "$VPS_KNOWN_HOSTS"
-          test -n "$VPS_DEPLOY_PATH"
+          set -euo pipefail
+          missing=()
+          [[ -n "$VPS_HOST" ]] || missing+=(VPS_HOST)
+          [[ -n "$VPS_USER" ]] || missing+=(VPS_USER)
+          [[ -n "$VPS_SSH_PRIVATE_KEY" ]] || missing+=(VPS_SSH_PRIVATE_KEY)
+          [[ -n "$VPS_KNOWN_HOSTS" ]] || missing+=(VPS_KNOWN_HOSTS)
+          [[ -n "$VPS_DEPLOY_PATH" ]] || missing+=(VPS_DEPLOY_PATH)
+
+          if (( ${#missing[@]} == 0 )); then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "VPS deployment is fully configured."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VPS deployment skipped; missing production secrets: ${missing[*]}"
+          fi
 
       - name: Deploy to VPS
+        if: steps.vps.outputs.enabled == 'true'
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
