@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 const NARA_BASE_URL = (process.env.NARA_BASE_URL ?? "https://router.bynara.id/v1").replace(/\/$/, "");
-const NARA_MODEL = (process.env.NARA_MODEL ?? "auto/bynara").trim() || "auto/bynara";
+const NARA_MODEL = (process.env.NARA_MODEL ?? process.env.DEFAULT_MODEL ?? "auto/bynara").trim() || "auto/bynara";
+const NARA_FALLBACK_MODEL = (process.env.NARA_FALLBACK_MODEL ?? "agnes-2.0-flash").trim() || "agnes-2.0-flash";
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 24_000;
@@ -57,6 +58,39 @@ function naraError(payload: unknown, status: number) {
   return { type: `http_${status}`, message: "NaraRouter درخواست را رد کرد." };
 }
 
+function isModelNotFound(status: number, details: { type: string; message: string }) {
+  const text = `${details.type} ${details.message}`.toLowerCase();
+  return status === 404 || /model[^\n]*(not exist|not found|does not exist|unknown|unavailable)/i.test(text) || /requested model does not exist/i.test(text);
+}
+
+async function requestNara(model: string, messages: WebChatMessage[], apiKey: string) {
+  const response = await fetch(`${NARA_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  const raw = await response.text();
+  let payload: unknown = {};
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    payload = { message: "پاسخ نامعتبر از NaraRouter دریافت شد." };
+  }
+  return { response, payload };
+}
+
 export async function directNaraChat(messages: unknown) {
   const apiKey = (process.env.NARA_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -79,48 +113,38 @@ export async function directNaraChat(messages: unknown) {
     content:
       "تو «هوشمند» هستی؛ یک دستیار هوش مصنوعی واحد و حرفه‌ای. سازنده: حاجی احمد صالحی. تیم سازنده: تیم ربات‌های سازنده @فکر کن. درباره خودت با نام هوشمند صحبت کن و Provider یا مدل پشت‌صحنه را به‌عنوان هویت خود معرفی نکن. پاسخ‌ها را دقیق، مفید و به زبان کاربر بده. اگر برای یک کار نیاز به ابزار یا محیطی داری که در Web در دسترس نیست، صادقانه محدودیت را بگو و هرگز نتیجه جعلی نساز.",
   };
+  const conversation = [system, ...cleaned];
 
   try {
-    const response = await fetch(`${NARA_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        model: NARA_MODEL,
-        messages: [system, ...cleaned],
-        temperature: 0.7,
-        max_tokens: 4096,
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
-    });
+    let { response, payload } = await requestNara(NARA_MODEL, conversation, apiKey);
+    let details = response.ok ? null : naraError(payload, response.status);
 
-    const raw = await response.text();
-    let payload: unknown = {};
-    try {
-      payload = raw ? JSON.parse(raw) : {};
-    } catch {
-      payload = { message: "پاسخ نامعتبر از NaraRouter دریافت شد." };
+    if (!response.ok && isModelNotFound(response.status, details) && NARA_FALLBACK_MODEL !== NARA_MODEL) {
+      console.warn("NaraRouter model unavailable; retrying with fallback model", {
+        requested_model: NARA_MODEL,
+        fallback_model: NARA_FALLBACK_MODEL,
+        status: response.status,
+        type: details.type,
+      });
+      ({ response, payload } = await requestNara(NARA_FALLBACK_MODEL, conversation, apiKey));
+      details = response.ok ? null : naraError(payload, response.status);
     }
 
     if (!response.ok) {
-      const details = naraError(payload, response.status);
+      const errorDetails = details ?? naraError(payload, response.status);
       console.error("NaraRouter rejected request", {
         status: response.status,
-        type: details.type,
-        request_id: "request_id" in details ? details.request_id : undefined,
-        model: NARA_MODEL,
+        type: errorDetails.type,
+        request_id: "request_id" in errorDetails ? errorDetails.request_id : undefined,
+        model: isModelNotFound(response.status, errorDetails) ? NARA_FALLBACK_MODEL : NARA_MODEL,
       });
       return NextResponse.json(
         {
           error: "nara_request_failed",
           status: response.status,
-          type: details.type,
-          message: details.message,
-          ...( "request_id" in details && details.request_id ? { request_id: details.request_id } : {}),
+          type: errorDetails.type,
+          message: errorDetails.message,
+          ...( "request_id" in errorDetails && errorDetails.request_id ? { request_id: errorDetails.request_id } : {}),
         },
         { status: response.status, headers: { "Cache-Control": "no-store" } },
       );

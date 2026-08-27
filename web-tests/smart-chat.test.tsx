@@ -22,7 +22,9 @@ describe("هوشمند web chat", () => {
   it("starts without session initialization or backend dependency", async () => {
     render(<SmartChat />);
     expect(await screen.findByText("سلام! 👋")).toBeTruthy();
-    expect(screen.getByText("هر سؤالی داری، همین‌جا بپرس.")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("هر سؤالی داری، همین‌جا بپرس.") === true,
+    )).toBeTruthy();
     expect(screen.getByPlaceholderText("پیامت را اینجا بنویس…")).toBeTruthy();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
