@@ -33,9 +33,12 @@ class BaseProvider:
                 last_error.__cause__ = exc
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
-                if status in {401, 403}:
+                if status == 401:
                     code = "invalid_api_key"
                     message = "provider rejected the API credentials"
+                elif status == 403:
+                    code = "forbidden_model"
+                    message = "provider plan does not allow the requested model"
                 elif status == 429:
                     code = "rate_limit"
                     message = "provider rate limit reached"
