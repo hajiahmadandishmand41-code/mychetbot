@@ -13,6 +13,27 @@ class BaseProvider:
     timeout: float = 45.0
     max_retries: int = 2
 
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+        self._client_loop: object | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._client_loop is not loop:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=8.0, read=45.0, write=10.0, pool=5.0),
+                limits=httpx.Limits(max_connections=40, max_keepalive_connections=20, keepalive_expiry=30.0),
+                http2=True,
+            )
+            self._client_loop = loop
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+        self._client_loop = None
+
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
         raise NotImplementedError
 
@@ -22,12 +43,12 @@ class BaseProvider:
 
     async def _post(self, url: str, headers: dict, payload: dict) -> dict:
         last_error: ProviderError | None = None
+        client = self._get_client()
         for attempt in range(self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(url, headers=headers, json=payload)
-                    response.raise_for_status()
-                    return response.json()
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json()
             except httpx.TimeoutException as exc:
                 last_error = ProviderError(self.name, "timeout", "provider request timed out")
                 last_error.__cause__ = exc
@@ -63,8 +84,7 @@ class BaseProvider:
             if attempt >= self.max_retries or not self._retryable(last_error.code):
                 raise last_error
 
-            # Keep retries quick while yielding to other requests; 0.35s, 0.7s.
-            delay = 0.35 * (2**attempt) + random.uniform(0, 0.15)
+            delay = 0.25 * (2**attempt) + random.uniform(0, 0.10)
             await asyncio.sleep(delay)
 
         raise last_error or ProviderError(self.name, "http_error", "provider request failed")
