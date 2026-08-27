@@ -23,3 +23,6 @@ class Router:
             raise
         except Exception as exc:  # noqa: BLE001
             raise ProviderError("nara", "unexpected_error", "chat provider request failed") from exc
+
+    async def aclose(self) -> None:
+        await self._provider.aclose()
