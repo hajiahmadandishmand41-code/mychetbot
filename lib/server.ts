@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { validateMessage, validateSessionId } from "@/lib/validation";
 
@@ -39,10 +39,19 @@ export function checkSameOrigin(request: NextRequest) {
   if (!origin) return true;
   try {
     const expectedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    if (!expectedHost) return false;
     return new URL(origin).host === expectedHost;
   } catch {
     return false;
   }
+}
+
+export async function requestRateKey(sessionId: string) {
+  const requestHeaders = await headers();
+  const forwarded = requestHeaders.get("x-forwarded-for")?.split(",", 1)[0]?.trim();
+  const realIp = requestHeaders.get("x-real-ip")?.trim();
+  const source = forwarded || realIp || "unknown";
+  return `web:${source}:${sessionId}`;
 }
 
 export function allowRate(key: string) {
@@ -66,16 +75,31 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   const { baseUrl, token } = backendConfig();
   if (!baseUrl || !token) {
     return NextResponse.json(
-      { error: "backend_not_configured", message: "MyChatBot Web نیازمند MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN برای اتصال به Unified Agent است." },
+      {
+        error: "backend_not_configured",
+        message: "MyChatBot Web نیازمند MYCHATBOT_API_URL و MYCHATBOT_API_TOKEN برای اتصال به Unified Agent است.",
+      },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
+
+  let target: URL;
+  try {
+    target = new URL(path, `${baseUrl}/`);
+  } catch {
+    return NextResponse.json(
+      { error: "backend_configuration_error", message: "نشانی Backend معتبر نیست." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("Accept", "application/json");
   if (init.body) headers.set("Content-Type", "application/json");
+
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(target, {
       ...init,
       headers,
       cache: "no-store",
@@ -83,7 +107,11 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
     });
     const text = await response.text();
     let payload: unknown;
-    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: "invalid_backend_response", message: "Backend returned invalid JSON." }; }
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = { error: "invalid_backend_response", message: "Backend پاسخ JSON معتبر برنگرداند." };
+    }
     return NextResponse.json(payload, {
       status: response.status,
       headers: { "Cache-Control": "no-store", "X-MyChatBot-Streaming": "false" },
@@ -91,7 +119,10 @@ export async function proxyBackend(path: string, init: RequestInit = {}) {
   } catch (error) {
     console.error("Unified Agent backend proxy failed", error);
     return NextResponse.json(
-      { error: "backend_unreachable", message: "اتصال به Unified Agent برقرار نشد. پیکربندی Backend و دسترسی شبکه را بررسی کنید." },
+      {
+        error: "backend_unreachable",
+        message: "اتصال به Unified Agent برقرار نشد. پیکربندی Backend و دسترسی شبکه را بررسی کنید.",
+      },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
