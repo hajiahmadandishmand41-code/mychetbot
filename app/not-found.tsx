@@ -8,7 +8,7 @@ export default function NotFound() {
       <h1>این مسیر وجود ندارد.</h1>
       <p>نشانی واردشده معتبر نیست یا این صفحه جابه‌جا شده است.</p>
       <div className="suggestions">
-        <Link href="/" style={{ display: "inline-block", padding: "9px 14px", border: ""1px solid var(--border)"", borderRadius: 11, background: "var(--panel)", color: "var(--text)", textDecoration: "none", fontSize: 12 }}>
+        <Link href="/" style={{ display: "inline-block", padding: "9px 14px", border: "1px solid var(--border)", borderRadius: 11, background: "var(--panel)", color: "var(--text)", textDecoration: "none", fontSize: 12 }}>
           بازگشت به هوشمند
         </Link>
       </div>
