@@ -3,9 +3,9 @@ import "./globals.css";
 import "./mobile.css";
 
 export const metadata: Metadata = {
-  title: "MyChatBot",
-  description: "Unified conversational AI by Haj Ahmad Salehi",
-  applicationName: "MyChatBot",
+  title: "سپنتا",
+  description: "دستیار هوش مصنوعی یکپارچه سپنتا",
+  applicationName: "سپنتا",
 };
 
 export const viewport: Viewport = {
