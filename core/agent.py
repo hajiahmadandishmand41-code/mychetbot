@@ -49,6 +49,31 @@ class Agent(_Agent):
             )
         return response
 
+    @staticmethod
+    def _needs_tool_planner(text: str) -> bool:
+        """Avoid a second model call for ordinary conversation.
+
+        Tool planning is only worthwhile when the user's wording clearly asks
+        for live data, diagnostics, a URL/page analysis, or another tool-like
+        operation. This preserves tool support while keeping normal chat fast.
+        """
+        lowered = text.lower().strip()
+        if not lowered:
+            return False
+        signals = (
+            "http://", "https://", "www.",
+            "آخرین", "جدیدترین", "اخبار", "قیمت", "وضعیت فعلی", "تحقیق", "جستجو", "پیدا کن",
+            "وب", "لینک", "صفحه", "سرور", "backend", "render", "diagnostic", "diagnostics",
+            "وای فای", "wifi", "اینترنت", "dns", "پینگ", "ping", "ip", "شبکه", "باتری",
+            "دستگاه", "filesystem", "runtime", "نسخه", "server",
+        )
+        return any(signal in lowered for signal in signals)
+
+    async def _plan_tool(self, text: str) -> dict[str, Any] | None:
+        if not self._needs_tool_planner(text):
+            return None
+        return await super()._plan_tool(text)
+
     async def _run_internal_tool(self, plan: dict[str, Any]) -> str:
         # Delegate to canonical implementation so profile/session/resource
         # policy remains identical across Telegram, API, CLI and Web.
