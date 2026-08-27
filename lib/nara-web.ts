@@ -12,6 +12,14 @@ export type WebChatMessage = {
   content: string;
 };
 
+type NaraMessage = WebChatMessage | { role: "system"; content: string };
+
+type NaraErrorDetails = {
+  type: string;
+  message: string;
+  request_id?: string;
+};
+
 function cleanMessages(messages: unknown): WebChatMessage[] {
   if (!Array.isArray(messages)) return [];
 
@@ -36,15 +44,21 @@ function cleanMessages(messages: unknown): WebChatMessage[] {
   return cleaned.reverse();
 }
 
-function naraError(payload: unknown, status: number) {
+function naraError(payload: unknown, status: number): NaraErrorDetails {
   if (payload && typeof payload === "object" && "error" in payload) {
     const error = (payload as { error?: unknown }).error;
-    if (typeof error === "string" && error.trim()) return { type: "unknown", message: error.trim() };
+    if (typeof error === "string" && error.trim()) {
+      return { type: "unknown", message: error.trim() };
+    }
+
     if (error && typeof error === "object") {
       const item = error as { type?: unknown; message?: unknown; request_id?: unknown };
       return {
         type: typeof item.type === "string" ? item.type : `http_${status}`,
-        message: typeof item.message === "string" && item.message.trim() ? item.message.trim() : "NaraRouter درخواست را رد کرد.",
+        message:
+          typeof item.message === "string" && item.message.trim()
+            ? item.message.trim()
+            : "NaraRouter درخواست را رد کرد.",
         request_id: typeof item.request_id === "string" ? item.request_id : undefined,
       };
     }
@@ -52,18 +66,24 @@ function naraError(payload: unknown, status: number) {
 
   if (payload && typeof payload === "object" && "message" in payload) {
     const message = (payload as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return { type: `http_${status}`, message: message.trim() };
+    if (typeof message === "string" && message.trim()) {
+      return { type: `http_${status}`, message: message.trim() };
+    }
   }
 
   return { type: `http_${status}`, message: "NaraRouter درخواست را رد کرد." };
 }
 
-function isModelNotFound(status: number, details: { type: string; message: string }) {
+function isModelNotFound(status: number, details: NaraErrorDetails): boolean {
   const text = `${details.type} ${details.message}`.toLowerCase();
-  return status === 404 || /model[^\n]*(not exist|not found|does not exist|unknown|unavailable)/i.test(text) || /requested model does not exist/i.test(text);
+  return (
+    status === 404 ||
+    /model[^\n]*(not exist|not found|does not exist|unknown|unavailable)/i.test(text) ||
+    /requested model does not exist/i.test(text)
+  );
 }
 
-async function requestNara(model: string, messages: WebChatMessage[], apiKey: string) {
+async function requestNara(model: string, messages: NaraMessage[], apiKey: string) {
   const response = await fetch(`${NARA_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -88,6 +108,7 @@ async function requestNara(model: string, messages: WebChatMessage[], apiKey: st
   } catch {
     payload = { message: "پاسخ نامعتبر از NaraRouter دریافت شد." };
   }
+
   return { response, payload };
 }
 
@@ -108,26 +129,31 @@ export async function directNaraChat(messages: unknown) {
     );
   }
 
-  const system = {
-    role: "system" as const,
+  const system: NaraMessage = {
+    role: "system",
     content:
       "تو «هوشمند» هستی؛ یک دستیار هوش مصنوعی واحد و حرفه‌ای. سازنده: حاجی احمد صالحی. تیم سازنده: تیم ربات‌های سازنده @فکر کن. درباره خودت با نام هوشمند صحبت کن و Provider یا مدل پشت‌صحنه را به‌عنوان هویت خود معرفی نکن. پاسخ‌ها را دقیق، مفید و به زبان کاربر بده. اگر برای یک کار نیاز به ابزار یا محیطی داری که در Web در دسترس نیست، صادقانه محدودیت را بگو و هرگز نتیجه جعلی نساز.",
   };
-  const conversation = [system, ...cleaned];
+  const conversation: NaraMessage[] = [system, ...cleaned];
 
   try {
     let { response, payload } = await requestNara(NARA_MODEL, conversation, apiKey);
-    let details = response.ok ? null : naraError(payload, response.status);
+    let details: NaraErrorDetails | undefined;
 
-    if (!response.ok && isModelNotFound(response.status, details) && NARA_FALLBACK_MODEL !== NARA_MODEL) {
-      console.warn("NaraRouter model unavailable; retrying with fallback model", {
-        requested_model: NARA_MODEL,
-        fallback_model: NARA_FALLBACK_MODEL,
-        status: response.status,
-        type: details.type,
-      });
-      ({ response, payload } = await requestNara(NARA_FALLBACK_MODEL, conversation, apiKey));
-      details = response.ok ? null : naraError(payload, response.status);
+    if (!response.ok) {
+      details = naraError(payload, response.status);
+
+      if (isModelNotFound(response.status, details) && NARA_FALLBACK_MODEL !== NARA_MODEL) {
+        console.warn("NaraRouter model unavailable; retrying with fallback model", {
+          requested_model: NARA_MODEL,
+          fallback_model: NARA_FALLBACK_MODEL,
+          status: response.status,
+          type: details.type,
+        });
+
+        ({ response, payload } = await requestNara(NARA_FALLBACK_MODEL, conversation, apiKey));
+        details = response.ok ? undefined : naraError(payload, response.status);
+      }
     }
 
     if (!response.ok) {
@@ -135,16 +161,19 @@ export async function directNaraChat(messages: unknown) {
       console.error("NaraRouter rejected request", {
         status: response.status,
         type: errorDetails.type,
-        request_id: "request_id" in errorDetails ? errorDetails.request_id : undefined,
-        model: isModelNotFound(response.status, errorDetails) ? NARA_FALLBACK_MODEL : NARA_MODEL,
+        request_id: errorDetails.request_id,
+        model: isModelNotFound(response.status, errorDetails)
+          ? NARA_FALLBACK_MODEL
+          : NARA_MODEL,
       });
+
       return NextResponse.json(
         {
           error: "nara_request_failed",
           status: response.status,
           type: errorDetails.type,
           message: errorDetails.message,
-          ...( "request_id" in errorDetails && errorDetails.request_id ? { request_id: errorDetails.request_id } : {}),
+          ...(errorDetails.request_id ? { request_id: errorDetails.request_id } : {}),
         },
         { status: response.status, headers: { "Cache-Control": "no-store" } },
       );
