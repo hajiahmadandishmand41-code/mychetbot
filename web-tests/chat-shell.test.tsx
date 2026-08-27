@@ -8,12 +8,8 @@ function mockFetch() {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
-    if (url.endsWith("/api/session") && method === "GET") {
-      return new Response(JSON.stringify({ sessionId }), { status: 200 });
-    }
-    if (url.endsWith("/api/history")) {
-      return new Response(JSON.stringify({ messages: [] }), { status: 200 });
-    }
+    if (url.endsWith("/api/session") && method === "GET") return new Response(JSON.stringify({ sessionId }), { status: 200 });
+    if (url.endsWith("/api/history")) return new Response(JSON.stringify({ messages: [] }), { status: 200 });
     if (url.endsWith("/api/chat") && method === "POST") {
       const body = JSON.parse(String(init?.body)) as { message: string };
       return new Response(JSON.stringify({ reply: `پاسخ واقعی: ${body.message}\n\n\`\`\`ts\nconst ok = true\n\`\`\`` }), { status: 200 });
@@ -26,6 +22,10 @@ describe("MyChatBot web chat", () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset.theme = "dark";
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: () => ({ matches: false, media: "", onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() }),
+    });
     vi.restoreAllMocks();
   });
 
