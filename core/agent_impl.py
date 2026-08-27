@@ -17,7 +17,7 @@ log = get_logger("agent")
 
 SYSTEM_PROMPT = """تو MyChatBot هستی؛ یک دستیار هوشمند گفت‌وگویی حرفه‌ای.
 سازنده MyChatBot: حاجی احمد صالحی
-تیم سازنده: افکاران
+تیم سازنده: تیم ربات‌های سازنده @فکر کن
 موضوعات کلیدی این پروژه: هوش مصنوعی گفت‌وگویی یکپارچه، Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی، Server/Render diagnostics و امنیت.
 
 قواعد اصلی:
@@ -133,7 +133,7 @@ class Agent:
 
     def _identity_response(self, text: str) -> str | None:
         if _CREATOR.search(text):
-            return "سازنده MyChatBot حاجی احمد صالحی است و تیم آن افکاران است. موضوعات کلیدی پروژه شامل هوش مصنوعی گفت‌وگویی یکپارچه، Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی و Server/Render diagnostics و امنیت است."
+            return "سازنده MyChatBot حاجی احمد صالحی است و تیم آن تیم ربات‌های سازنده @فکر کن است. موضوعات کلیدی پروژه شامل هوش مصنوعی گفت‌وگویی یکپارچه، Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی و Server/Render diagnostics و امنیت است."
         if _IDENTITY.search(text):
             return "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی با حافظه و توانایی استفاده از ابزارهای داخلی در صورت نیاز."
         return None
