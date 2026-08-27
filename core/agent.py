@@ -2,7 +2,7 @@
 
 The implementation remains in :mod:`core.agent_impl`; this facade preserves
 stable public hooks for legacy callers/tests and normalizes user-facing
-identity for every interface without duplicating orchestration logic.
+identity for every interface.
 """
 
 import json
@@ -19,47 +19,69 @@ _NAME_QUERY = re.compile(
     r"|(?:what(?:'s| is)\s+my\s+name|what\s+was\s+my\s+name)\s*[?]?$",
     re.I,
 )
+_SELF_QUERY = re.compile(
+    r"(?:درباره|راجع(?:‌به| به)|معرفی)\s+(?:خودت|خودت رو|خودت را|ربات|بات|هوشان|این ربات)"
+    r"|(?:کی|چی|چه)\s+هستی(?:؟|\?)?"
+    r"|(?:خودت|ربات|بات)\s+(?:را|رو)?\s*(?:معرفی|توضیح|بگو)"
+    r"|what\s+(?:are|is)\s+hooshan|tell me about (?:hooshan|yourself)",
+    re.I,
+)
 
-TEAM_IDENTITY = "تیم ربات‌های سازنده @فکر کن"
-SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT.replace("تیم سازنده: افکاران", f"تیم سازنده: {TEAM_IDENTITY}")
+TEAM_IDENTITY = "تیم اندیشه فردا"
+ASSISTANT_NAME = "هوشان"
+CREATOR_NAME = "حاجی احمد صالحی"
+SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT
+
+HOOSHAN_PROFILE = (
+    "نام من «هوشان» است؛ یک دستیار هوشمند گفت‌وگویی و جستجوگر اطلاعات. "
+    "هوشان برای گفتگو، تحقیق و جستجوی اطلاعات روز، تحلیل منابع عمومی وب، خلاصه‌سازی، "
+    "پاسخ‌گویی فارسی و دری، و کمک در برنامه‌نویسی و مسائل فنی طراحی شده است. "
+    f"سازنده و بنیان‌گذار این پروژه {CREATOR_NAME} است و این پروژه با {TEAM_IDENTITY} شناخته می‌شود. "
+    "حاجی احمد صالحی در معرفی این پروژه به‌عنوان سخنران حوزه موفقیت، برنامه‌نویس و فعال در زمینه‌های گوناگون فنی و آموزشی معرفی می‌شود. "
+    "هوشان باید در موضوعات وابسته به زمان، اخبار، قیمت‌ها و اطلاعات بیرونی ابتدا از ابزار جستجوی وب استفاده کند؛ "
+    "اگر جستجو در دسترس نباشد، محدودیت را صادقانه اعلام می‌کند و چیزی را جعل نمی‌کند. "
+    "نام Provider یا مدل پشت‌صحنه هویت هوشان نیست و در پاسخ‌های عادی درباره خودش مطرح نمی‌شود."
+)
 
 
 class Agent(_Agent):
-    """Stable public Agent facade with legacy hooks preserved."""
+    """Stable public Agent facade with fast intent routing and Hooshan identity."""
 
     def _remember_from_message(self, user_input: str) -> None:
-        # A recall question must never overwrite the stored name fact.
         if _NAME_QUERY.search(user_input.strip()):
             return
         super()._remember_from_message(user_input)
 
     def _system(self, user_input: str, extra: str | None = None) -> dict[str, str]:
         message = super()._system(user_input, extra)
-        message["content"] = message["content"].replace("تیم سازنده: افکاران", f"تیم سازنده: {TEAM_IDENTITY}")
+        message["content"] = message["content"].replace("MyChatBot", ASSISTANT_NAME)
+        message["content"] += "\n\nهویت کاربر-facing: نام دستیار «هوشان» است. تیم پروژه: «اندیشه فردا»."
         return message
 
     def _identity_response(self, text: str) -> str | None:
-        response = super()._identity_response(text)
+        normalized = text.strip()
+        if _SELF_QUERY.search(normalized):
+            return HOOSHAN_PROFILE
+        response = super()._identity_response(normalized)
         if response is None:
             return None
-        if "سازنده MyChatBot" in response:
-            return (
-                "سازنده MyChatBot حاجی احمد صالحی است و تیم سازنده آن "
-                f"{TEAM_IDENTITY} است. موضوعات کلیدی پروژه شامل هوش مصنوعی گفت‌وگویی یکپارچه، "
-                "Web Research، Memory، Telegram/API، Android/Termux، Wi‑Fi diagnostics قانونی و Server/Render diagnostics و امنیت است."
-            )
+        # Never expose provider/model identity as the assistant identity.
+        if "MyChatBot" in response or "مدل" in response or "هوش" in normalized.lower():
+            return HOOSHAN_PROFILE
         return response
 
     @staticmethod
     def _needs_tool_planner(text: str) -> bool:
-        """Use the planner only when intent is not already unambiguous locally."""
         lowered = text.lower().strip()
         if not lowered:
             return False
         signals = (
             "http://", "https://", "www.",
-            "آخرین", "جدیدترین", "اخبار", "قیمت", "وضعیت فعلی", "تحقیق", "جستجو", "پیدا کن",
-            "وب", "لینک", "صفحه", "سرور", "backend", "render", "diagnostic", "diagnostics",
+            "آخرین", "جدیدترین", "اخبار", "خبر", "قیمت", "قیمت امروز", "وضعیت فعلی",
+            "تحقیق", "جستجو", "جست‌وجو", "پیدا کن", "پیدا کن از اینترنت", "اینترنت", "آنلاین",
+            "وب", "روی وب", "از وب", "منبع", "منابع", "اطلاعات تازه", "اطلاعات روز", "اطلاعات فعلی",
+            "بررسی کن", "بررسی آنلاین",
+            "لینک", "صفحه", "سرور", "backend", "render", "diagnostic", "diagnostics",
             "وای فای", "wifi", "اینترنت", "dns", "پینگ", "ping", "ip", "شبکه", "باتری",
             "دستگاه", "filesystem", "runtime", "نسخه", "server",
         )
@@ -79,8 +101,9 @@ class Agent(_Agent):
             return {"tool": "web_compare", "args": {"urls_json": json.dumps(urls, ensure_ascii=False)}}
 
         search_markers = (
-            "آخرین", "جدیدترین", "اخبار", "قیمت", "تحقیق", "جستجو", "پیدا کن",
-            "روی وب", "از وب", "اطلاعات فعلی", "وضعیت فعلی",
+            "آخرین", "جدیدترین", "اخبار", "خبر", "قیمت", "قیمت امروز", "تحقیق", "جستجو", "جست‌وجو",
+            "پیدا کن", "روی وب", "از وب", "از اینترنت", "اینترنت", "آنلاین", "اطلاعات فعلی",
+            "اطلاعات تازه", "اطلاعات روز", "وضعیت فعلی", "منبع", "منابع", "بررسی آنلاین",
         )
         if any(marker in lowered for marker in search_markers):
             return {"tool": "web_search", "args": {"query": text}}
