@@ -3,8 +3,6 @@ import tseslint from "typescript-eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
   globalIgnores([
     ".next/**",
     "out/**",
@@ -13,4 +11,15 @@ export default defineConfig([
     "coverage/**",
     "next-env.d.ts",
   ]),
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    ...js.configs.recommended,
+  },
+  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "no-undef": "off",
+    },
+  },
 ]);
