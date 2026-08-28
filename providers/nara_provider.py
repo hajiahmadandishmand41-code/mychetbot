@@ -12,8 +12,8 @@ class NaraProvider(BaseProvider):
 
     @staticmethod
     def _needs_model_fallback(error: ProviderError) -> bool:
-        # A model-specific incompatibility or a transient model/tier outage
-        # should move to the next configured model rather than fail the chat.
+        # Switch immediately on model/tier/gateway failures.  Authentication
+        # errors must not be retried because every model uses the same key.
         return error.code in {
             "model_or_request_invalid",
             "forbidden_model",
@@ -44,30 +44,34 @@ class NaraProvider(BaseProvider):
 
         for index, selected in enumerate(models):
             try:
+                payload = {
+                    "model": selected,
+                    "messages": messages,
+                    "temperature": kw.get("temperature", 0.7),
+                    "max_tokens": kw.get("max_tokens", 4096),
+                }
+                # Only send optional provider-specific reasoning controls when
+                # explicitly requested. This keeps the OpenAI-compatible payload
+                # compatible with every model behind the gateway.
+                if kw.get("reasoning_effort") is not None:
+                    payload["reasoning_effort"] = kw["reasoning_effort"]
+
                 data = await self._post(
                     f"{config.nara_base_url}/chat/completions",
                     headers,
-                    {
-                        "model": selected,
-                        "messages": messages,
-                        "temperature": kw.get("temperature", 0.7),
-                        "max_tokens": kw.get("max_tokens", 4096),
-                        "reasoning_effort": kw.get("reasoning_effort", "medium"),
-                    },
+                    payload,
                 )
                 try:
                     content = data["choices"][0]["message"]["content"]
                 except (KeyError, IndexError, TypeError) as exc:
-                    raise ValueError("NaraRouter returned an unexpected response") from exc
+                    raise ProviderError(self.name, "invalid_response", "NaraRouter returned an unexpected response") from exc
                 if not isinstance(content, str) or not content.strip():
-                    raise ValueError("NaraRouter returned empty assistant content")
+                    raise ProviderError(self.name, "invalid_response", "NaraRouter returned empty assistant content")
                 return content
             except ProviderError as exc:
                 last_error = exc
                 if not self._needs_model_fallback(exc) or index >= len(models) - 1:
                     raise
-                # Move immediately to another model/tier. BaseProvider already
-                # performs bounded retries for transient transport/gateway errors.
                 await asyncio.sleep(0)
 
         raise last_error or ProviderError(self.name, "http_error", "provider request failed")
