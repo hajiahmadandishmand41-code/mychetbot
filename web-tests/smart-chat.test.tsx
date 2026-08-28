@@ -26,7 +26,7 @@ describe("هوشمند web chat", () => {
       element?.tagName === "P" && element.textContent?.includes("هر سؤالی داری، همین‌جا بپرس.") === true,
     )).toBeTruthy();
     expect(screen.getByPlaceholderText("پیامت را اینجا بنویس…")).toBeTruthy();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(vi.isMockFunction(globalThis.fetch)).toBe(false);
   });
 
   it("sends the current conversation to the real chat API", async () => {
