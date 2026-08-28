@@ -38,7 +38,9 @@ class BaseProvider:
 
     @staticmethod
     def _retryable(code: str) -> bool:
-        return code in {"timeout", "connection_failure", "rate_limit", "http_5xx"}
+        # Do not retry 429 here: NaraProvider can immediately switch models.
+        # Retrying a rate-limited request multiplies traffic and makes the limit worse.
+        return code in {"timeout", "connection_failure", "http_5xx"}
 
     async def _post(self, url: str, headers: dict, payload: dict) -> dict:
         last_error: ProviderError | None = None
