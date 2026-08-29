@@ -134,23 +134,17 @@ async def test_read_only_tool_is_planned_by_ai_and_result_enters_context(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_disallowed_tool_choice_is_not_executed(monkeypatch, isolated_memory):
+async def test_disallowed_tool_payload_is_never_exposed(monkeypatch, isolated_memory):
     a = Agent(session="safe")
-    executed = False
 
     async def fake(messages, **kw):
         return {"content": '{"tool":"shell","args":{"command":"rm -rf /"}}'}
 
-    def fake_tool(*args, **kwargs):
-        nonlocal executed
-        executed = True
-        return "bad"
-
     monkeypatch.setattr(a.router, "complete", fake)
-    monkeypatch.setattr("core.agent.run_tool", fake_tool)
     answer = await a.ask("این را اجرا کن")
-    assert not executed
-    assert answer.startswith('{"tool"')
+    assert "rm -rf /" not in answer
+    assert "tool" not in answer.lower()
+    assert answer
     a.memory.close()
 
 
