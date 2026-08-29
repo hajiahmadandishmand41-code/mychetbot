@@ -22,13 +22,31 @@ async def test_agent_plain_reply(monkeypatch, isolated_memory):
         nonlocal calls
         calls += 1
         assert messages[0]["role"] == "system"
-        assert "MyChatBot" in messages[0]["content"]
+        assert "هوشان" in messages[0]["content"]
         return {"content": "پاسخ تستی"}
 
     monkeypatch.setattr(a.router, "complete", fake)
     assert await a.ask("سلام") == "پاسخ تستی"
     assert calls == 1
     assert a.memory.history("t")[-1].content == "پاسخ تستی"
+    a.memory.close()
+
+
+@pytest.mark.asyncio
+async def test_deterministic_introduction_does_not_require_provider(monkeypatch, isolated_memory):
+    a = Agent(session="intro")
+    called = False
+
+    async def fail_provider(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("provider must not be required for deterministic introduction")
+
+    monkeypatch.setattr(a.router, "complete", fail_provider)
+    answer = await a.ask("معرفی کن")
+    assert answer.startswith("نام من «هوشان» است")
+    assert "حاجی احمد صالحی" in answer
+    assert not called
     a.memory.close()
 
 
@@ -66,19 +84,25 @@ async def test_remember_language_preference(monkeypatch, isolated_memory):
 @pytest.mark.asyncio
 async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_memory):
     a = Agent(session="identity")
+    called = False
 
-    async def fake(messages, **kw):
-        return {"content": "من MyChatBot هستم؛ یک دستیار هوشمند گفت‌وگویی هستم."}
+    async def fail_provider(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("identity must be resolved locally")
 
-    monkeypatch.setattr(a.router, "complete", fake)
+    monkeypatch.setattr(a.router, "complete", fail_provider)
     answer = await a.ask("تو چه مدلی هستی؟")
-    assert "MyChatBot" in answer
+    assert "هوشان" in answer
+    assert "Provider" not in answer
+    assert "مدل" not in answer
     assert "حاجی احمد صالحی" in a._identity_response("سازنده‌ات کیست؟")
+    assert not called
     a.memory.close()
 
 
 @pytest.mark.asyncio
-async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch, isolated_memory):
+async def test_read_only_tool_is_planned_by_ai_and_result_enters_context(monkeypatch, isolated_memory):
     monkeypatch.setattr(config, "tool_profile", "device")
     a = Agent(session="tool-user")
     calls = []
@@ -86,6 +110,8 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
     async def fake(messages, **kw):
         calls.append(messages)
         if len(calls) == 1:
+            assert messages[0]["role"] == "system"
+            assert "Intent/Tool Planner" in messages[0]["content"]
             return {"content": '{"tool":"wifi_info","args":{}}'}
         return {"content": "وضعیت اتصال دریافت شد."}
 
@@ -99,6 +125,7 @@ async def test_read_only_tool_is_internal_and_result_enters_context(monkeypatch,
     monkeypatch.setattr(a.router, "complete", fake)
     monkeypatch.setattr("core.agent_impl.run_tool", fake_tool)
     await a.ask("وضعیت Wi-Fi فعلی را بررسی کن")
+    assert len(calls) == 2
     assert any(m["role"] == "tool" and "TestWiFi" in m["content"] for m in a.memory.history("tool-user"))
     final_system = calls[-1][0]["content"]
     assert "Internal tool result (wifi_info)" in final_system
