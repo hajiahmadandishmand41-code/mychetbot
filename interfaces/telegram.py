@@ -11,7 +11,6 @@ import httpx
 from core.agent import Agent
 from core.errors import ConfigurationError, ProviderError
 from core.logger import get_logger
-from tools.registry import run_tool
 
 log = get_logger("telegram")
 
@@ -122,85 +121,6 @@ class TelegramClient:
         return text, False
 
     @staticmethod
-    def _web_request(text: str) -> tuple[bool, bool, str]:
-        normalized = text.strip()
-        lowered = normalized.lower()
-        if normalized == "/news":
-            return True, True, "آخرین اخبار مهم امروز"
-        if lowered.startswith("/search"):
-            query = normalized[len("/search"):].strip()
-            return True, False, query or "آخرین اخبار مهم امروز"
-        markers = (
-            "آخرین", "جدیدترین", "اخبار", "خبر", "قیمت امروز", "اطلاعات روز", "اطلاعات فعلی",
-            "تحقیق", "جستجو", "جست‌وجو", "از اینترنت", "از وب", "روی وب", "آنلاین", "منبع", "منابع",
-            "بررسی آنلاین", "http://", "https://", "www.",
-        )
-        return any(marker in lowered for marker in markers), False, normalized
-
-    @staticmethod
-    def _format_web_result(raw: str, query: str, news: bool) -> str:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            return "جستجوی وب پاسخ نامعتبری برگرداند. لطفاً دوباره تلاش کنید."
-
-        if payload.get("status") != "success":
-            warnings = payload.get("warnings") or []
-            warning = str(warnings[0]) if warnings else "سرویس جستجوی وب در دسترس نبود."
-            return f"در حال حاضر جستجوی وب موفق نشد انجام شود.\nجزئیات: {warning[:500]}"
-
-        data = payload.get("data") or {}
-        rows: list[tuple[str, str, str]] = []
-        for item in data.get("results") or []:
-            if not isinstance(item, dict):
-                continue
-            search = item.get("search_result") or {}
-            page = item.get("page") or {}
-            if not isinstance(search, dict) or not isinstance(page, dict):
-                continue
-            title = str(page.get("title") or search.get("title") or "بدون عنوان").strip()
-            url = str(page.get("url") or search.get("url") or "").strip()
-            snippet = str(search.get("snippet") or page.get("text") or page.get("warning") or "").strip()
-            rows.append((title[:240], snippet[:900], url[:1000]))
-
-        for page in data.get("pages") or []:
-            if not isinstance(page, dict):
-                continue
-            title = str(page.get("title") or "بدون عنوان").strip()
-            url = str(page.get("url") or "").strip()
-            snippet = str(page.get("text") or page.get("warning") or "").strip()
-            rows.append((title[:240], snippet[:900], url[:1000]))
-
-        deduped: list[tuple[str, str, str]] = []
-        seen: set[str] = set()
-        for row in rows:
-            key = row[2] or row[0]
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-
-        if not deduped:
-            return "از جستجوی وب نتیجه قابل استفاده‌ای دریافت نشد."
-
-        header = "📰 اخبار و اطلاعات روز" if news else "🔎 نتیجه جستجوی وب"
-        lines = [header, f"موضوع: {query}", ""]
-        for index, (title, snippet, url) in enumerate(deduped[:8], 1):
-            lines.append(f"{index}. {title}")
-            if snippet:
-                lines.append(snippet)
-            if url:
-                lines.append(f"منبع: {url}")
-            lines.append("")
-        lines.append("نتایج از جستجوی عمومی وب جمع‌آوری شده‌اند؛ محتوای منابع را با احتیاط بررسی کنید.")
-        return "\n".join(lines).strip()
-
-    async def _direct_web_search(self, session: str, query: str, news: bool) -> str:
-        profile = os.getenv("TOOL_PROFILE", "local").strip() or "local"
-        raw = await asyncio.to_thread(run_tool, "web_search", {"query": query[:500]}, profile, session)
-        return self._format_web_result(raw, query, news)
-
-    @staticmethod
     def _provider_failure(exc: ProviderError) -> str:
         messages = {
             "invalid_api_key": "اتصال سرویس هوش مصنوعی معتبر نیست. کلید دسترسی Provider را در محیط اجرا بررسی کنید.",
@@ -236,14 +156,13 @@ class TelegramClient:
 
         session = f"telegram:{chat_id}"
         prompt, show_keyboard = self._command_prompt(text)
-        is_web, is_news, query = self._web_request(text)
         async with self._lock(session):
             try:
                 await self._call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-                if is_web:
-                    answer = await self._direct_web_search(session, query, is_news)
-                else:
-                    answer = await self._agent(session).ask(prompt)
+                # Telegram is only an interface. Every capability request,
+                # including news/search, must enter the same Agent pipeline so
+                # the configured AI Provider plans, invokes, and summarizes it.
+                answer = await self._agent(session).ask(prompt)
             except ProviderError as exc:
                 log.error("Telegram provider failure: code=%s provider=%s", exc.code, exc.provider, exc_info=True)
                 answer = self._provider_failure(exc)
