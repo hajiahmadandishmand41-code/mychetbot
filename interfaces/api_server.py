@@ -91,6 +91,20 @@ class ChatIn(BaseModel):
         return value
 
 
+class WhatsAppMockIn(BaseModel):
+    sender: str = Field(default="test-user", min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=50000)
+    message_id: str = Field(default="test-message", min_length=1, max_length=200)
+
+    @field_validator("sender", "message", "message_id")
+    @classmethod
+    def clean(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("value must not be blank")
+        return value
+
+
 class RateLimiter:
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
@@ -172,6 +186,7 @@ def health() -> dict:
         "telegram_configured": telegram_client.enabled,
         "whatsapp_configured": whatsapp_client.enabled,
         "whatsapp_webhook_configured": whatsapp_client.webhook_configured,
+        "whatsapp_mock_mode": whatsapp_client.mock_mode,
     }
 
 
@@ -229,8 +244,19 @@ async def whatsapp_webhook(request: Request):
         payload = await request.json()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid JSON") from exc
+    if not whatsapp_client.enabled:
+        raise HTTPException(status_code=503, detail="WhatsApp integration is not configured")
     _retain_background_task(whatsapp_client.handle_payload(payload))
     return {"ok": True}
+
+
+@app.post("/whatsapp/test")
+async def whatsapp_test(body: WhatsAppMockIn, authorization: str | None = Header(default=None)):
+    _auth(authorization)
+    if not whatsapp_client.mock_mode:
+        raise HTTPException(status_code=404, detail="WhatsApp mock mode is disabled")
+    reply = await whatsapp_client.process_test_message(body.sender, body.message, body.message_id)
+    return {"ok": True, "mode": "mock", "reply": reply, "sender": body.sender}
 
 
 @app.post("/chat")
