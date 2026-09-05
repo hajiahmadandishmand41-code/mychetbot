@@ -8,6 +8,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
 from core.agent import Agent
@@ -16,6 +17,7 @@ from core.errors import ConfigurationError, ProviderError
 from core.logger import get_logger
 from core.security import constant_time_eq, fingerprint, redact
 from interfaces.telegram import telegram_client
+from interfaces.whatsapp import whatsapp_client
 
 log = get_logger("api")
 
@@ -34,6 +36,7 @@ async def lifespan(_: FastAPI):
         if _background_tasks:
             await asyncio.gather(*tuple(_background_tasks), return_exceptions=True)
         await telegram_client.aclose()
+        await whatsapp_client.aclose()
         with _agents_lock:
             for agent in _agents.values():
                 agent.memory.close()
@@ -168,6 +171,8 @@ def health() -> dict:
         "status": "ok",
         "api_auth_configured": bool(config.api_token),
         "telegram_configured": telegram_client.enabled,
+        "whatsapp_configured": whatsapp_client.enabled,
+        "whatsapp_webhook_configured": whatsapp_client.webhook_configured,
     }
 
 
@@ -196,6 +201,35 @@ async def telegram_webhook(
     if not telegram_client.enabled:
         raise HTTPException(status_code=503, detail="Telegram integration is not configured")
     _retain_background_task(telegram_client.handle_update(update))
+    return {"ok": True}
+
+
+@app.get("/whatsapp/webhook")
+async def whatsapp_verify(
+    hub_mode: str | None = None,
+    hub_verify_token: str | None = None,
+    hub_challenge: str | None = None,
+):
+    try:
+        challenge = whatsapp_client.verify_challenge(hub_mode, hub_verify_token, hub_challenge)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid verification request") from exc
+    return PlainTextResponse(challenge)
+
+
+@app.post("/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not whatsapp_client.verify_signature(raw_body, signature):
+        raise HTTPException(status_code=401, detail="invalid webhook signature")
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON") from exc
+    _retain_background_task(whatsapp_client.handle_payload(payload))
     return {"ok": True}
 
 
