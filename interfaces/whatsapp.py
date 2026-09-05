@@ -23,13 +23,16 @@ class WhatsAppClient:
         self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
         self.verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
         self.app_secret = os.getenv("WHATSAPP_APP_SECRET", "").strip()
-        self.api_version = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip() or "v21.0"
+        self.api_version = os.getenv("WHATSAPP_API_VERSION", "v23.0").strip() or "v23.0"
         self.graph_base_url = os.getenv("WHATSAPP_GRAPH_BASE_URL", "https://graph.facebook.com").rstrip("/")
         self.require_signature = os.getenv("WHATSAPP_REQUIRE_SIGNATURE", "true").strip().lower() in {"1", "true", "yes", "on"}
         self._client: httpx.AsyncClient | None = None
         self._client_loop: object | None = None
         self._agents: dict[str, Agent] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._seen_ids: set[str] = set()
+        self._seen_order: list[str] = []
+        self._seen_limit = 4096
 
     @property
     def enabled(self) -> bool:
@@ -75,6 +78,18 @@ class WhatsAppClient:
         provided = signature[7:]
         expected = hmac.new(self.app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(provided, expected)
+
+    def _is_duplicate(self, message_id: str) -> bool:
+        if not message_id:
+            return False
+        if message_id in self._seen_ids:
+            return True
+        self._seen_ids.add(message_id)
+        self._seen_order.append(message_id)
+        if len(self._seen_order) > self._seen_limit:
+            stale = self._seen_order.pop(0)
+            self._seen_ids.discard(stale)
+        return False
 
     async def _send_text(self, to: str, text: str, reply_to: str | None = None) -> None:
         if not self.enabled:
@@ -141,6 +156,9 @@ class WhatsAppClient:
                     text = text_obj.get("body") if isinstance(text_obj, dict) else None
                     message_id = str(message.get("id", "")).strip()
                     if not sender or not isinstance(text, str) or not text.strip():
+                        continue
+                    if self._is_duplicate(message_id):
+                        log.info("Ignoring duplicate WhatsApp message: %s", message_id)
                         continue
                     session = f"whatsapp:{sender}"
                     async with self._lock(session):
