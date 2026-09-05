@@ -16,7 +16,7 @@ log = get_logger("whatsapp")
 
 
 class WhatsAppClient:
-    """Official WhatsApp Cloud API adapter using Meta webhooks."""
+    """Official WhatsApp Cloud API adapter with an isolated local mock mode for testing."""
 
     def __init__(self) -> None:
         self.access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
@@ -26,6 +26,7 @@ class WhatsAppClient:
         self.api_version = os.getenv("WHATSAPP_API_VERSION", "v23.0").strip() or "v23.0"
         self.graph_base_url = os.getenv("WHATSAPP_GRAPH_BASE_URL", "https://graph.facebook.com").rstrip("/")
         self.require_signature = os.getenv("WHATSAPP_REQUIRE_SIGNATURE", "true").strip().lower() in {"1", "true", "yes", "on"}
+        self.mock_mode = os.getenv("WHATSAPP_MOCK_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
         self._client: httpx.AsyncClient | None = None
         self._client_loop: object | None = None
         self._agents: dict[str, Agent] = {}
@@ -36,11 +37,11 @@ class WhatsAppClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.access_token and self.phone_number_id)
+        return self.mock_mode or bool(self.access_token and self.phone_number_id)
 
     @property
     def webhook_configured(self) -> bool:
-        return bool(self.verify_token and self.app_secret)
+        return self.mock_mode or bool(self.verify_token and self.app_secret)
 
     def _get_client(self) -> httpx.AsyncClient:
         loop = asyncio.get_running_loop()
@@ -64,13 +65,22 @@ class WhatsAppClient:
                 log.debug("agent provider close failed", exc_info=True)
 
     def verify_challenge(self, mode: str | None, token: str | None, challenge: str | None) -> str:
-        if mode != "subscribe" or not self.verify_token or not token or not challenge:
+        if mode != "subscribe" or not challenge:
+            raise ValueError("invalid webhook verification request")
+        if self.mock_mode:
+            expected = self.verify_token or "mychetbot-test"
+            if not token or not hmac.compare_digest(token, expected):
+                raise PermissionError("invalid verification token")
+            return challenge
+        if not self.verify_token or not token:
             raise ValueError("invalid webhook verification request")
         if not hmac.compare_digest(token, self.verify_token):
             raise PermissionError("invalid verification token")
         return challenge
 
     def verify_signature(self, body: bytes, signature: str | None) -> bool:
+        if self.mock_mode and not self.app_secret:
+            return True
         if not self.app_secret:
             return not self.require_signature
         if not signature or not signature.startswith("sha256="):
@@ -92,6 +102,9 @@ class WhatsAppClient:
         return False
 
     async def _send_text(self, to: str, text: str, reply_to: str | None = None) -> None:
+        if self.mock_mode:
+            log.info("WhatsApp MOCK reply to=%s reply_to=%s text=%s", to, reply_to, text[:4096])
+            return
         if not self.enabled:
             raise RuntimeError("WhatsApp Cloud API is not configured")
         url = f"{self.graph_base_url}/{self.api_version}/{self.phone_number_id}/messages"
@@ -136,6 +149,25 @@ class WhatsAppClient:
             "invalid_response": "سرویس هوش مصنوعی پاسخ معتبری برنگرداند.",
         }
         return messages.get(exc.code, "در پردازش درخواست خطایی از سرویس هوش مصنوعی دریافت شد. دوباره تلاش کنید.")
+
+    async def process_test_message(self, sender: str, text: str, message_id: str = "test-message") -> str:
+        """Run the same conversational pipeline without sending anything to Meta."""
+        sender = sender.strip() or "test-user"
+        text = text.strip()
+        if not text:
+            raise ValueError("text must not be blank")
+        session = f"whatsapp:{sender}"
+        if self._is_duplicate(message_id):
+            return "پیام تکراری بود و دوباره پردازش نشد."
+        async with self._lock(session):
+            try:
+                return await self._agent(session).ask(text)
+            except ProviderError as exc:
+                log.error("WhatsApp test provider failure: code=%s provider=%s", exc.code, exc.provider, exc_info=True)
+                return self._provider_failure(exc)
+            except ConfigurationError:
+                log.exception("WhatsApp test configuration failure")
+                return "اتصال هوش مصنوعی در محیط اجرا تنظیم نشده است. تنظیمات سرویس را بررسی کنید."
 
     async def handle_payload(self, payload: dict[str, Any]) -> None:
         if payload.get("object") != "whatsapp_business_account":
