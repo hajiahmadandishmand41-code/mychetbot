@@ -134,7 +134,6 @@ def _auth(authorization: str | None) -> str:
 
 
 def _owned_session(session: str, token: str) -> str:
-    """Bind logical session names to the authenticated API principal."""
     return f"api:{fingerprint(token + ':' + session)}"
 
 
@@ -205,13 +204,14 @@ async def telegram_webhook(
 
 
 @app.get("/whatsapp/webhook")
-async def whatsapp_verify(
-    hub_mode: str | None = None,
-    hub_verify_token: str | None = None,
-    hub_challenge: str | None = None,
-):
+async def whatsapp_verify(request: Request):
+    params = request.query_params
     try:
-        challenge = whatsapp_client.verify_challenge(hub_mode, hub_verify_token, hub_challenge)
+        challenge = whatsapp_client.verify_challenge(
+            params.get("hub.mode"),
+            params.get("hub.verify_token"),
+            params.get("hub.challenge"),
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="forbidden") from exc
     except ValueError as exc:
@@ -250,7 +250,7 @@ async def chat(body: ChatIn, request: Request, authorization: str | None = Heade
             raise HTTPException(status_code=502, detail=redact(exc.message)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("unhandled chat error")
             raise HTTPException(status_code=500, detail="internal server error") from exc
     return {"reply": answer, "session": body.session}
