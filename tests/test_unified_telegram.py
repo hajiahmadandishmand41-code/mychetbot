@@ -6,8 +6,8 @@ import pytest
 from core.agent import Agent
 from core.config import config
 from core.errors import ProviderError
-from interfaces.telegram import TelegramAPIError, TelegramClient
 from core.router import Router
+from interfaces.telegram import TelegramAPIError, TelegramClient
 from providers.nara_provider import NaraProvider
 
 
