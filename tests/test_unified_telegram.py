@@ -7,6 +7,7 @@ from core.agent import Agent
 from core.config import config
 from core.errors import ProviderError
 from interfaces.telegram import TelegramAPIError, TelegramClient
+from core.router import Router
 from providers.nara_provider import NaraProvider
 
 
@@ -217,3 +218,39 @@ def test_telegram_commands_accept_bot_suffix_and_search_arguments():
     assert TelegramClient._command_prompt("/start@sample_bot")[1] is True
     prompt, _ = TelegramClient._command_prompt("/search افغانستان")
     assert "افغانستان" in prompt
+
+
+
+def test_router_reports_nara_payment_required_clearly():
+    error = ProviderError("nara", "payment_required", "payment required")
+    message = Router._provider_user_message(error)
+    assert "اعتبار" in message or "سهمیه" in message
+    assert "NaraRouter" in message
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_forbidden_does_not_escape_background_task(monkeypatch):
+    client = TelegramClient()
+    asked = []
+
+    class FakeAgent:
+        async def ask(self, prompt):
+            asked.append(prompt)
+            return "پاسخ آزمایشی"
+
+    async def fake_call(method, payload):
+        if method in {"sendChatAction", "sendMessage"}:
+            raise TelegramAPIError(method, 403, 403)
+        return {"ok": True}
+
+    monkeypatch.setattr(client, "_agent", lambda session: FakeAgent())
+    monkeypatch.setattr(client, "_call", fake_call)
+
+    await client.handle_update({
+        "message": {
+            "chat": {"id": 456},
+            "from": {"id": 456},
+            "text": "سلام",
+        }
+    })
+    assert len(asked) == 1
