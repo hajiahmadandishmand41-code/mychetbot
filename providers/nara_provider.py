@@ -12,13 +12,13 @@ class NaraProvider(BaseProvider):
 
     @staticmethod
     def _needs_model_fallback(error: ProviderError) -> bool:
-        # Switch immediately on model/tier/gateway failures.  Authentication
-        # errors must not be retried because every model uses the same key.
+        # A model-specific rejection can try the configured fallback list.
+        # Billing, authentication and account-wide rate limits cannot be fixed
+        # by changing model, so never multiply those requests.
         return error.code in {
             "model_or_request_invalid",
             "forbidden_model",
             "http_5xx",
-            "rate_limit",
         }
 
     async def chat(self, messages: list[dict], model: str | None = None, **kw) -> str:
@@ -35,6 +35,9 @@ class NaraProvider(BaseProvider):
         if not models:
             raise ValueError("No Nara models are configured")
 
+        if not config.nara_key:
+            raise ProviderError(self.name, "invalid_api_key", "NaraRouter API key is not configured")
+
         headers = {
             "Authorization": f"Bearer {config.nara_key}",
             "Content-Type": "application/json",
@@ -50,9 +53,6 @@ class NaraProvider(BaseProvider):
                     "temperature": kw.get("temperature", 0.7),
                     "max_tokens": kw.get("max_tokens", 4096),
                 }
-                # Only send optional provider-specific reasoning controls when
-                # explicitly requested. This keeps the OpenAI-compatible payload
-                # compatible with every model behind the gateway.
                 if kw.get("reasoning_effort") is not None:
                     payload["reasoning_effort"] = kw["reasoning_effort"]
 
