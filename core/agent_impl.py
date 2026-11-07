@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from core.config import config
+from core.errors import ProviderError
 from core.logger import get_logger
 from core.memory import Memory
 from core.router import Router
@@ -277,11 +278,17 @@ class Agent:
         messages = [self._system(text, extra), {"role": "user", "content": text}]
         try:
             result = await self.router.complete(messages)
-        except Exception as exc:
+        except ProviderError as exc:
+            # Router has already translated normalized provider failures into
+            # a safe user-facing message. Preserve that detail (especially
+            # payment_required) instead of hiding it behind a generic apology.
+            log.warning("chat provider failed: provider=%s code=%s", exc.provider, exc.code)
+            message = exc.message.strip() or "مدل هوش مصنوعی فعلاً درخواست را نپذیرفت."
+            self.memory.add(self.session, "assistant", message)
+            return message
+        except Exception:
             log.exception("chat completion failed")
             message = "فعلاً در اتصال به مدل هوش مصنوعی مشکل پیش آمده است. لطفاً چند لحظه بعد دوباره تلاش کنید."
-            if "ProviderError" in type(exc).__name__:
-                message = "مدل هوش مصنوعی فعلاً درخواست را نپذیرفت. لطفاً مدل یا اتصال Provider را بررسی کنید."
             self.memory.add(self.session, "assistant", message)
             return message
         answer = redact(str(result.get("content", "")).strip())
