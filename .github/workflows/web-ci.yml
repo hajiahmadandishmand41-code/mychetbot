@@ -23,6 +23,10 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+      # Node 22 runners ship npm 10.9.x, which has a known Arborist
+      # peer-dependency tree crash with some Vitest dependency graphs.
+      - name: Upgrade npm
+        run: npm install --global npm@11.19.1
       - name: Install dependencies
         run: npm install
       - name: TypeScript
