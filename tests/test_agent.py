@@ -3,6 +3,7 @@ import os
 import pytest
 
 from core.agent import Agent
+from core.errors import ProviderError
 from core.config import config
 from core.memory import Memory
 
@@ -147,3 +148,21 @@ def test_sessions_are_isolated(tmp_path):
     assert memory.recall("name", "a") == "احمد"
     assert memory.recall("name", "b") == "علی"
     memory.close()
+
+
+@pytest.mark.asyncio
+async def test_provider_payment_error_is_preserved_for_the_user(monkeypatch, isolated_memory):
+    a = Agent(session="provider-error")
+
+    async def fail(messages, **kw):
+        raise ProviderError(
+            "nara",
+            "payment_required",
+            "اعتبار یا سهمیه حساب NaraRouter کافی نیست.",
+        )
+
+    monkeypatch.setattr(a.router, "complete", fail)
+    answer = await a.ask("سلام")
+    assert "اعتبار" in answer
+    assert "NaraRouter" in answer
+    a.memory.close()
