@@ -28,11 +28,20 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _nara_default_model(value: str | None) -> str:
+    candidate = (value or "").strip()
+    # auto/bynara is a legacy alias not guaranteed by the current API catalog.
+    # Use the concrete model currently listed on NaraRouter instead.
+    if not candidate or candidate.lower() == "auto/bynara":
+        return "laguna-s-2.1"
+    return candidate
+
+
 @dataclass
 class Config:
     # Nara's documented routing alias works across supported plans and lets the
     # gateway choose an available model without hard-coding a fragile alias.
-    default_model: str = os.getenv("DEFAULT_MODEL", "laguna-s-2.1").strip() or "laguna-s-2.1"
+    default_model: str = _nara_default_model(os.getenv("DEFAULT_MODEL"))
     # Do not guess model aliases: they vary by API key and plan.
     # Add only aliases returned by the authenticated GET /v1/models endpoint.
     nara_fallback_models: tuple[str, ...] = _csv(os.getenv("NARA_FALLBACK_MODELS"), ())
