@@ -22,7 +22,7 @@ async def test_agent_plain_reply(monkeypatch, isolated_memory):
         nonlocal calls
         calls += 1
         assert messages[0]["role"] == "system"
-        assert "MyChatBot" in messages[0]["content"]
+        assert "هوشان" in messages[0]["content"]
         return {"content": "پاسخ تستی"}
 
     monkeypatch.setattr(a.router, "complete", fake)
@@ -72,7 +72,8 @@ async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_m
 
     monkeypatch.setattr(a.router, "complete", fake)
     answer = await a.ask("تو چه مدلی هستی؟")
-    assert "MyChatBot" in answer
+    assert "هوشان" in answer
+    assert "MyChatBot" not in answer
     assert "حاجی احمد صالحی" in a._identity_response("سازنده‌ات کیست؟")
     a.memory.close()
 
