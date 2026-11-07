@@ -21,14 +21,15 @@ class Router:
     @staticmethod
     def _provider_user_message(error: ProviderError) -> str:
         messages = {
-            "invalid_api_key": "کلید اتصال هوش مصنوعی معتبر نیست یا در محیط اجرای Telegram تنظیم نشده است.",
-            "forbidden_model": "Provider این مدل را برای حساب فعلی مجاز نمی‌داند؛ مدل جایگزین در حال بررسی است.",
-            "rate_limit": "سقف درخواست Provider موقتاً پر شده است؛ لطفاً چند لحظه بعد دوباره تلاش کنید.",
-            "model_or_request_invalid": "Provider مدل یا قالب درخواست را نپذیرفت؛ تنظیمات مدل/درخواست باید بررسی شود.",
-            "timeout": "اتصال به Provider بیش از زمان مجاز طول کشید.",
-            "connection_failure": "اتصال شبکه به Provider برقرار نشد.",
-            "http_5xx": "خود Provider موقتاً خطای سرور برگرداند.",
-            "invalid_response": "Provider پاسخ نامعتبر برگرداند.",
+            "invalid_api_key": "کلید اتصال هوش مصنوعی معتبر نیست یا در محیط اجرای برنامه تنظیم نشده است.",
+            "payment_required": "اعتبار یا سهمیه حساب NaraRouter برای این مدل کافی نیست؛ موجودی و طرح حساب را بررسی کنید.",
+            "forbidden_model": "طرح یا مجوز حساب NaraRouter دسترسی به مدل انتخاب‌شده را نمی‌دهد؛ فهرست مدل‌های مجاز را بررسی کنید.",
+            "rate_limit": "سقف درخواست یا سهمیه روزانه مدل در NaraRouter پر شده است؛ کمی بعد دوباره تلاش کنید.",
+            "model_or_request_invalid": "NaraRouter مدل یا قالب درخواست را نپذیرفت؛ نام مدل و ساختار درخواست باید بررسی شود.",
+            "timeout": "اتصال به NaraRouter بیش از زمان مجاز طول کشید.",
+            "connection_failure": "اتصال شبکه به NaraRouter برقرار نشد.",
+            "http_5xx": "NaraRouter موقتاً خطای سرور برگرداند.",
+            "invalid_response": "NaraRouter پاسخ نامعتبر برگرداند.",
         }
         return f"اتصال هوش مصنوعی هوشان با مشکل روبه‌رو شد: {messages.get(error.code, 'خطای ناشناخته در Provider')}"
 
