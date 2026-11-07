@@ -4,6 +4,7 @@ import pytest
 
 from core.agent import Agent
 from core.config import config
+from core.errors import ProviderError
 from core.memory import Memory
 
 
@@ -22,7 +23,7 @@ async def test_agent_plain_reply(monkeypatch, isolated_memory):
         nonlocal calls
         calls += 1
         assert messages[0]["role"] == "system"
-        assert "MyChatBot" in messages[0]["content"]
+        assert "هوشان" in messages[0]["content"]
         return {"content": "پاسخ تستی"}
 
     monkeypatch.setattr(a.router, "complete", fake)
@@ -72,7 +73,8 @@ async def test_identity_prompt_forbids_provider_identity(monkeypatch, isolated_m
 
     monkeypatch.setattr(a.router, "complete", fake)
     answer = await a.ask("تو چه مدلی هستی؟")
-    assert "MyChatBot" in answer
+    assert "هوشان" in answer
+    assert "MyChatBot" not in answer
     assert "حاجی احمد صالحی" in a._identity_response("سازنده‌ات کیست؟")
     a.memory.close()
 
@@ -146,3 +148,21 @@ def test_sessions_are_isolated(tmp_path):
     assert memory.recall("name", "a") == "احمد"
     assert memory.recall("name", "b") == "علی"
     memory.close()
+
+
+@pytest.mark.asyncio
+async def test_provider_payment_error_is_preserved_for_the_user(monkeypatch, isolated_memory):
+    a = Agent(session="provider-error")
+
+    async def fail(messages, **kw):
+        raise ProviderError(
+            "nara",
+            "payment_required",
+            "اعتبار یا سهمیه حساب NaraRouter کافی نیست.",
+        )
+
+    monkeypatch.setattr(a.router, "complete", fail)
+    answer = await a.ask("سلام")
+    assert "اعتبار" in answer
+    assert "NaraRouter" in answer
+    a.memory.close()
