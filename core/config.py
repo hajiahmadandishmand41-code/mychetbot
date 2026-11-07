@@ -33,9 +33,11 @@ class Config:
     # Nara's documented routing alias works across supported plans and lets the
     # gateway choose an available model without hard-coding a fragile alias.
     default_model: str = os.getenv("DEFAULT_MODEL", "auto/bynara").strip() or "auto/bynara"
+    # Keep the defaults aligned with NaraRouter's currently published Free tier.
+    # For a particular API key, the authoritative list is GET /v1/models.
     nara_fallback_models: tuple[str, ...] = _csv(
         os.getenv("NARA_FALLBACK_MODELS"),
-        ("agnes-2.5-flash", "agnes-2.0-flash"),
+        ("agnes-2.5-flash", "laguna-s-2.1", "nemotron-3.5-lightning-free"),
     )
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
