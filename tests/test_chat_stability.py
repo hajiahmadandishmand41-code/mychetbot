@@ -1,5 +1,5 @@
 from core.agent import Agent
-from core.config import config
+from core.config import _nara_default_model, config
 
 
 def test_ordinary_chat_skips_tool_planner():
@@ -16,3 +16,5 @@ def test_tool_queries_still_use_planner():
 def test_resilient_model_defaults():
     assert config.default_model == "laguna-s-2.1"
     assert config.nara_fallback_models == ()
+    assert _nara_default_model("auto/bynara") == "laguna-s-2.1"
+    assert _nara_default_model("model-returned-by-account") == "model-returned-by-account"
