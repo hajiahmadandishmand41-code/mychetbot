@@ -22,7 +22,7 @@ async def test_creator_identity_uses_requested_team_and_key_topics(isolated_memo
     agent = Agent(session="creator")
     answer = await agent.ask("سازنده و تیم شما کیست؟")
     assert "حاجی احمد صالحی" in answer
-    assert "تیم ربات‌های سازنده @فکر کن" in answer
+    assert "اندیشه فردا" in answer
     assert "افکاران" not in answer
     for topic in ("Web Research", "Memory", "Telegram/API", "Android/Termux", "Wi‑Fi", "Server/Render"):
         assert topic in answer or topic.replace("‑", "-") in answer
@@ -37,13 +37,11 @@ async def test_topic_question_selects_web_search(monkeypatch, isolated_memory):
 
     async def fake_complete(messages, **kwargs):
         calls.append(messages)
-        if len(calls) == 1:
-            return {"content": json.dumps({"tool": "web_search", "args": {"query": "آخرین اطلاعات درباره X"}})}
         return {"content": "بر اساس منابع عمومی دریافت‌شده، پاسخ تهیه شد."}
 
     async def fake_run(plan):
         assert plan["tool"] == "web_search"
-        assert plan["args"]["query"] == "آخرین اطلاعات درباره X"
+        assert plan["args"]["query"] == "آخرین اطلاعات درباره X را پیدا کن"
         return json.dumps({"status": "success", "data": {"results": [{"page": {"title": "X", "text": "Public data"}}]}}, ensure_ascii=False)
 
     monkeypatch.setattr(agent.router, "complete", fake_complete)
@@ -51,7 +49,7 @@ async def test_topic_question_selects_web_search(monkeypatch, isolated_memory):
 
     answer = await agent.ask("آخرین اطلاعات درباره X را پیدا کن")
     assert "پاسخ" in answer
-    assert len(calls) == 2
+    assert len(calls) == 1
     agent.memory.close()
 
 
