@@ -38,8 +38,8 @@ class BaseProvider:
 
     @staticmethod
     def _retryable(code: str) -> bool:
-        # Do not retry 429 here: NaraProvider can immediately switch models.
-        # Retrying a rate-limited request multiplies traffic and makes the limit worse.
+        # Authentication, billing, model and rate-limit failures are not transient
+        # transport failures. Retrying them wastes quota and can amplify throttling.
         return code in {"timeout", "connection_failure", "http_5xx"}
 
     async def _post(self, url: str, headers: dict, payload: dict) -> dict:
@@ -58,12 +58,15 @@ class BaseProvider:
                 if status == 401:
                     code = "invalid_api_key"
                     message = "provider rejected the API credentials"
+                elif status == 402:
+                    code = "payment_required"
+                    message = "provider account requires payment or has insufficient available credit"
                 elif status == 403:
                     code = "forbidden_model"
                     message = "provider plan does not allow the requested model"
                 elif status == 429:
                     code = "rate_limit"
-                    message = "provider rate limit reached"
+                    message = "provider rate limit or request quota reached"
                 elif status in {404, 400}:
                     code = "model_or_request_invalid"
                     message = f"provider rejected the request (HTTP {status})"
