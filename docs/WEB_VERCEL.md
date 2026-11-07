@@ -31,8 +31,8 @@ MYCHATBOT_API_TOKEN=<same API_TOKEN configured on the FastAPI backend>
 ```text
 NARA_API_KEY=<secret>
 NARA_BASE_URL=https://router.bynara.id/v1
-DEFAULT_MODEL=auto/bynara
-NARA_FALLBACK_MODELS=agnes-2.5-flash,agnes-2.0-flash
+DEFAULT_MODEL=laguna-s-2.1
+NARA_FALLBACK_MODELS=<comma-separated IDs returned by authenticated GET /v1/models>
 API_TOKEN=<long random secret>
 ```
 
