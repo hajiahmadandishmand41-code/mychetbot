@@ -14,5 +14,5 @@ def test_tool_queries_still_use_planner():
 
 
 def test_resilient_model_defaults():
-    assert config.default_model == "auto/bynara"
-    assert "agnes-2.5-flash" in config.nara_fallback_models
+    assert config.default_model == "laguna-s-2.1"
+    assert config.nara_fallback_models == ()
