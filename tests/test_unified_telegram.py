@@ -1,10 +1,12 @@
 import json
 
+import httpx
 import pytest
 
 from core.agent import Agent
 from core.config import config
-from interfaces.telegram import TelegramClient
+from core.errors import ProviderError
+from interfaces.telegram import TelegramAPIError, TelegramClient
 from providers.nara_provider import NaraProvider
 
 
@@ -92,6 +94,7 @@ async def test_nara_provider_uses_expected_payload(monkeypatch):
         captured.update(url=url, headers=headers, payload=payload)
         return {"choices": [{"message": {"content": "ok"}}]}
 
+    monkeypatch.setattr(config, "nara_key", "test-nara-key")
     monkeypatch.setattr(provider, "_post", fake_post)
     answer = await provider.chat([{"role": "user", "content": "سلام"}], model="agnes-2.0-flash", temperature=0)
     assert answer == "ok"
@@ -101,3 +104,116 @@ async def test_nara_provider_uses_expected_payload(monkeypatch):
         "temperature": 0.7,
         "max_tokens": 4096,
     }
+
+
+@pytest.mark.asyncio
+async def test_nara_payment_required_does_not_try_fallback_models(monkeypatch):
+    provider = NaraProvider()
+    attempted_models = []
+
+    async def fail_payment(url, headers, payload):
+        attempted_models.append(payload["model"])
+        raise ProviderError("nara", "payment_required", "payment required")
+
+    monkeypatch.setattr(config, "nara_key", "test-nara-key")
+    monkeypatch.setattr(config, "default_model", "auto/bynara")
+    monkeypatch.setattr(config, "nara_fallback_models", ("agnes-2.5-flash", "agnes-2.0-flash"))
+    monkeypatch.setattr(provider, "_post", fail_payment)
+
+    with pytest.raises(ProviderError) as exc:
+        await provider.chat([{"role": "user", "content": "سلام"}])
+    assert exc.value.code == "payment_required"
+    assert attempted_models == ["auto/bynara"]
+
+
+@pytest.mark.asyncio
+async def test_base_provider_maps_http_402_to_payment_required(monkeypatch):
+    provider = NaraProvider()
+
+    class FakeClient:
+        async def post(self, url, headers, json):
+            request = httpx.Request("POST", url)
+            return httpx.Response(402, request=request, json={"error": "payment_required"})
+
+    monkeypatch.setattr(provider, "_get_client", lambda: FakeClient())
+    with pytest.raises(ProviderError) as exc:
+        await provider._post(
+            "https://router.example/v1/chat/completions",
+            {"Authorization": "Bearer fake"},
+            {"model": "test"},
+        )
+    assert exc.value.code == "payment_required"
+
+
+@pytest.mark.asyncio
+async def test_telegram_http_error_never_exposes_bot_token(monkeypatch):
+    client = TelegramClient()
+    monkeypatch.setattr(client, "token", "sensitive-test-token")
+    monkeypatch.setattr(client, "base_url", "https://api.telegram.org/botsensitive-test-token")
+
+    class FakeClient:
+        async def post(self, url, json):
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                403,
+                request=request,
+                json={"ok": False, "error_code": 403, "description": "Forbidden"},
+            )
+
+    monkeypatch.setattr(client, "_get_client", lambda: FakeClient())
+    with pytest.raises(TelegramAPIError) as exc:
+        await client._call("sendMessage", {"chat_id": 1, "text": "test"})
+    assert "sensitive-test-token" not in str(exc.value)
+    assert exc.value.__cause__ is None
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_failure_does_not_block_ai_reply(monkeypatch):
+    client = TelegramClient()
+    sent_methods = []
+
+    class FakeAgent:
+        async def ask(self, prompt):
+            return "پاسخ آزمایشی"
+
+    async def fake_call(method, payload):
+        sent_methods.append(method)
+        if method == "sendChatAction":
+            raise TelegramAPIError(method, 403, 403)
+        return {"ok": True}
+
+    monkeypatch.setattr(client, "_agent", lambda session: FakeAgent())
+    monkeypatch.setattr(client, "_call", fake_call)
+
+    await client.handle_update({
+        "message": {
+            "chat": {"id": 123},
+            "from": {"id": 123},
+            "text": "سلام",
+        }
+    })
+    assert sent_methods == ["sendChatAction", "sendMessage"]
+
+
+@pytest.mark.asyncio
+async def test_telegram_startup_does_not_rewrite_profile_metadata(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_URL", "https://bot.example.test")
+    client = TelegramClient()
+    methods = []
+
+    async def fake_call(method, payload):
+        methods.append(method)
+        if method == "getMe":
+            return {"ok": True, "result": {"username": "test_bot"}}
+        return {"ok": True, "result": True}
+
+    monkeypatch.setattr(client, "_call", fake_call)
+    await client.configure_webhook()
+    assert methods == ["getMe", "setWebhook"]
+
+
+def test_telegram_commands_accept_bot_suffix_and_search_arguments():
+    assert TelegramClient._command_prompt("/start@sample_bot")[1] is True
+    prompt, _ = TelegramClient._command_prompt("/search افغانستان")
+    assert "افغانستان" in prompt
