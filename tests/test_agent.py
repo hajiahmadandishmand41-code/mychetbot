@@ -3,8 +3,8 @@ import os
 import pytest
 
 from core.agent import Agent
-from core.errors import ProviderError
 from core.config import config
+from core.errors import ProviderError
 from core.memory import Memory
 
 
