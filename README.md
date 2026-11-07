@@ -76,11 +76,12 @@ The API always uses `API_TOOL_PROFILE=server` in the production deployment, expo
 
 ## Telegram
 
-Set `TELEGRAM_BOT_TOKEN`. For production, configure `TELEGRAM_ALLOWED_CHAT_IDS` and set `TELEGRAM_REQUIRE_ALLOWLIST=true`. The bot uses long polling with timeouts/retries, respects Telegram `Retry-After` on rate limits, per-chat locks, per-chat Agent sessions and Telegram message-size handling.
+This repository has two distinct Telegram modes:
 
-```bash
-bash termux/start_telegram.sh
-```
+- **Render/FastAPI webhook:** Render starts `uvicorn interfaces.api_server:app`. Set `TELEGRAM_BOT_TOKEN`; `TELEGRAM_WEBHOOK_URL` may be the public service origin (without `/telegram/webhook`), or Render's `RENDER_EXTERNAL_URL` is used automatically. The app registers `/telegram/webhook` with Telegram. For webhook allow-listing, use `TELEGRAM_REQUIRE_ALLOWLIST=true` with comma-separated numeric Telegram user IDs in `TELEGRAM_ALLOWLIST`.
+- **Termux long polling:** run `bash termux/start_telegram.sh`. This separate mode reads `TELEGRAM_ALLOWED_CHAT_IDS` and uses long polling; it is not the mode used by the Render FastAPI service.
+
+Keep `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and provider keys only in the hosting environment. Never paste them into logs, commits, issues, or chat. Rotate a Telegram token immediately if it appears in a log or URL. The Render webhook treats `sendChatAction` as optional so a typing-indicator failure cannot prevent AI processing.
 
 ## Providers
 
