@@ -7,7 +7,7 @@ services:
     environment:
       NARA_API_KEY: ${NARA_API_KEY:-}
       NARA_BASE_URL: ${NARA_BASE_URL:-https://router.bynara.id/v1}
-      DEFAULT_MODEL: ${DEFAULT_MODEL:-agnes-2.0-flash}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-laguna-s-2.1}
       API_TOKEN: ${API_TOKEN:-}
       MYCHATBOT_MASTER_KEY: ${MYCHATBOT_MASTER_KEY:-}
       TOOL_PROFILE: server
