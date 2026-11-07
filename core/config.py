@@ -32,13 +32,10 @@ def _csv(value: str | None, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 class Config:
     # Nara's documented routing alias works across supported plans and lets the
     # gateway choose an available model without hard-coding a fragile alias.
-    default_model: str = os.getenv("DEFAULT_MODEL", "auto/bynara").strip() or "auto/bynara"
-    # Keep the defaults aligned with NaraRouter's currently published Free tier.
-    # For a particular API key, the authoritative list is GET /v1/models.
-    nara_fallback_models: tuple[str, ...] = _csv(
-        os.getenv("NARA_FALLBACK_MODELS"),
-        ("agnes-2.5-flash", "laguna-s-2.1", "nemotron-3.5-lightning-free"),
-    )
+    default_model: str = os.getenv("DEFAULT_MODEL", "laguna-s-2.1").strip() or "laguna-s-2.1"
+    # Do not guess model aliases: they vary by API key and plan.
+    # Add only aliases returned by the authenticated GET /v1/models endpoint.
+    nara_fallback_models: tuple[str, ...] = _csv(os.getenv("NARA_FALLBACK_MODELS"), ())
     nara_key: str = os.getenv("NARA_API_KEY", "").strip()
     nara_base_url: str = os.getenv("NARA_BASE_URL", "https://router.bynara.id/v1").rstrip("/")
     openai_key: str = os.getenv("OPENAI_API_KEY", "").strip()
