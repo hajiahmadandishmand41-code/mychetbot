@@ -1,5 +1,6 @@
-import httpx
 import json
+
+import httpx
 import pytest
 
 from core.agent import Agent
