@@ -102,7 +102,7 @@ async def test_nara_provider_uses_expected_payload(monkeypatch):
     assert captured["payload"] == {
         "model": "agnes-2.0-flash",
         "messages": [{"role": "user", "content": "سلام"}],
-        "temperature": 0.7,
+        "temperature": 0,
         "max_tokens": 4096,
     }
 
